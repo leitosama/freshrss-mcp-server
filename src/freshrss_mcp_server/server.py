@@ -43,6 +43,9 @@ def _run_cleanup() -> None:
         return
     _shutdown_in_progress = True
 
+    if not browser.is_browser_running():
+        return
+
     logger.info("Running cleanup...")
     try:
         loop = asyncio.new_event_loop()
@@ -86,6 +89,56 @@ async def get_client() -> FreshRSSClient:
         )
         logger.info("FreshRSS client initialized for %s", settings.freshrss_api_url)
     return _client
+
+
+def _dynamic_fetch_available() -> bool:
+    """Whether force_dynamic can actually work right now (config + package present)."""
+    try:
+        settings = get_settings()
+    except Exception:
+        # Settings may not validate yet (e.g. FreshRSS credentials not set at import
+        # time, such as during `--version`). Assume unavailable; get_settings() is
+        # re-checked on every actual tool call.
+        return False
+    return settings.enable_dynamic_fetch and browser.is_playwright_available()
+
+
+_FETCH_FULL_ARTICLE_DESCRIPTION_DYNAMIC = """Fetch full article content from original URL.
+
+Use this tool when an RSS feed only provides a summary and you need
+the complete article text. It extracts the main content from the webpage.
+
+By default, uses fast static fetching. If the returned content seems
+incomplete (e.g., just "Loading..." or JavaScript placeholders),
+call again with force_dynamic=True to use browser rendering.
+
+Args:
+    url: The original article URL to fetch
+    force_dynamic: Force browser rendering for JS-heavy sites (default: False)
+
+Returns:
+    Extracted article content with title, text, author, date, and method.
+    The 'method' field indicates 'static' or 'dynamic' fetch was used.
+"""
+
+_FETCH_FULL_ARTICLE_DESCRIPTION_STATIC_ONLY = """Fetch full article content from original URL.
+
+Use this tool when an RSS feed only provides a summary and you need
+the complete article text. It extracts the main content from the webpage.
+
+Only static fetching is available on this server: browser rendering is
+disabled or not installed, so force_dynamic=True will return an error
+(code DYNAMIC_DISABLED or PLAYWRIGHT_NOT_INSTALLED). Do not retry with
+force_dynamic=True.
+
+Args:
+    url: The original article URL to fetch
+    force_dynamic: Force browser rendering for JS-heavy sites (unavailable on this server)
+
+Returns:
+    Extracted article content with title, text, author, date, and method.
+    The 'method' field is always 'static' on this server.
+"""
 
 
 def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
@@ -166,28 +219,17 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         client = await get_client()
         return await articles.get_subscriptions(client)
 
-    @server.tool()
+    @server.tool(
+        description=(
+            _FETCH_FULL_ARTICLE_DESCRIPTION_DYNAMIC
+            if _dynamic_fetch_available()
+            else _FETCH_FULL_ARTICLE_DESCRIPTION_STATIC_ONLY
+        )
+    )
     async def fetch_full_article(
         url: str,
         force_dynamic: bool = False,
     ) -> dict[str, Any]:
-        """Fetch full article content from original URL.
-
-        Use this tool when an RSS feed only provides a summary and you need
-        the complete article text. It extracts the main content from the webpage.
-
-        By default, uses fast static fetching. If the returned content seems
-        incomplete (e.g., just "Loading..." or JavaScript placeholders),
-        call again with force_dynamic=True to use browser rendering.
-
-        Args:
-            url: The original article URL to fetch
-            force_dynamic: Force browser rendering for JS-heavy sites (default: False)
-
-        Returns:
-            Extracted article content with title, text, author, date, and method.
-            The 'method' field indicates 'static' or 'dynamic' fetch was used.
-        """
         app_settings = get_settings()
         return await fetcher.fetch_full_article(
             url,
@@ -257,6 +299,15 @@ def main() -> None:
     logger.info("Starting FreshRSS MCP Server v%s", __version__)
     logger.info("Transport: %s", args.transport)
     logger.info("Log level: %s", settings.log_level)
+    if not settings.enable_dynamic_fetch:
+        logger.info("Dynamic fetch: disabled")
+    elif browser.is_playwright_available():
+        logger.info("Dynamic fetch: enabled")
+    else:
+        logger.warning(
+            "Dynamic fetch: enabled in settings, but Playwright is not installed. %s",
+            browser.INSTALL_HINT,
+        )
 
     if args.transport == "stdio":
         # Use default server for STDIO mode
@@ -285,6 +336,10 @@ def main() -> None:
                     "status": "healthy",
                     "version": __version__,
                     "transport": args.transport,
+                    "dynamic_fetch": {
+                        "enabled": settings.enable_dynamic_fetch,
+                        "playwright_installed": browser.is_playwright_available(),
+                    },
                 }
             )
 

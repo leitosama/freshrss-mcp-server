@@ -6,7 +6,7 @@ An MCP (Model Context Protocol) server that connects to a self-hosted FreshRSS i
 
 - **Fetch Unread Articles**: Get all unread articles from your RSS subscriptions
 - **Article Content**: Access full article content with title, summary, link, and publication date
-- **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds)
+- **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds), with optional browser rendering for JS-heavy pages
 - **Mark as Read**: Mark articles as read after processing
 - **Subscription Management**: View all subscriptions with unread counts
 
@@ -29,10 +29,16 @@ cd freshrss-mcp-server
 2. Install dependencies:
 ```bash
 uv sync
+```
 
-# Install Playwright browser (required for dynamic fetch)
+**Optional: dynamic (JS-rendered) fetch.** By default, `fetch_full_article` only does
+static fetching (trafilatura), which covers most feeds. For JS-heavy pages, install the
+optional Playwright extra:
+```bash
+uv sync --extra playwright
 uv run playwright install chromium
 ```
+and set `ENABLE_DYNAMIC_FETCH=true` (see Configuration below).
 
 3. Create `.env` file with your FreshRSS credentials:
 ```bash
@@ -59,8 +65,8 @@ MCP_TRANSPORT=sse           # "stdio", "sse", or "streamable-http"
 MCP_HOST=::                 # HTTP server host (:: = all interfaces)
 MCP_PORT=8080               # HTTP server port
 
-# Optional: Dynamic content fetching (Playwright)
-ENABLE_DYNAMIC_FETCH=true   # Enable browser rendering for JS-heavy sites
+# Optional: Dynamic content fetching (requires the "playwright" extra, see Installation)
+ENABLE_DYNAMIC_FETCH=false  # Enable browser rendering for JS-heavy sites
 BROWSER_TIMEOUT=30          # Page load timeout in seconds
 
 # Optional: API Authentication (for remote deployments)
@@ -120,7 +126,12 @@ For SSE and Streamable HTTP modes, a health check endpoint is available:
 
 ```bash
 curl http://localhost:8080/health
-# {"status": "healthy", "version": "0.1.0", "transport": "streamable-http"}
+# {
+#   "status": "healthy",
+#   "version": "0.1.0",
+#   "transport": "streamable-http",
+#   "dynamic_fetch": {"enabled": false, "playwright_installed": false}
+# }
 ```
 
 ### API Authentication
@@ -200,7 +211,18 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Or build and run manually:
+Or pull the published image directly:
+
+```bash
+docker run -p 8080:8080 \
+  -e FRESHRSS_API_URL=https://your-freshrss/api/greader.php \
+  -e FRESHRSS_USERNAME=your_username \
+  -e FRESHRSS_API_PASSWORD=your_password \
+  -e API_KEY=your-secret-key \
+  ghcr.io/leitosama/freshrss-mcp-server:latest
+```
+
+Or build manually:
 
 ```bash
 docker build -t freshrss-mcp .
@@ -212,10 +234,32 @@ docker run -p 8080:8080 \
   freshrss-mcp
 ```
 
-The Docker image includes:
+The default Docker image (`Dockerfile`):
+- Has no browser installed — dynamic fetch is unavailable (`ENABLE_DYNAMIC_FETCH=false`)
 - Health check configuration
-- Playwright browser pre-installed
 - Streamable HTTP as default transport
+- Is the only variant published to `ghcr.io/leitosama/freshrss-mcp-server`
+
+### Dynamic fetch image (optional, not published)
+
+For dynamic (JS-rendered) fetch, build the Playwright variant yourself — it is not
+published, so it always builds from your own checkout:
+
+```bash
+docker build -f Dockerfile.playwright -t freshrss-mcp:playwright .
+docker run -p 8080:8080 \
+  -e FRESHRSS_API_URL=https://your-freshrss/api/greader.php \
+  -e FRESHRSS_USERNAME=your_username \
+  -e FRESHRSS_API_PASSWORD=your_password \
+  freshrss-mcp:playwright
+```
+
+With Docker Compose, edit `docker-compose.yml` to set `dockerfile: Dockerfile.playwright`
+(commented example already in the file) and `ENABLE_DYNAMIC_FETCH=true` in `.env`, then:
+
+```bash
+docker compose up -d --build
+```
 
 ### Railway Deployment
 
@@ -243,24 +287,17 @@ FRESHRSS_API_PASSWORD=your_api_password
 
 # Recommended settings
 MCP_TRANSPORT=streamable-http
-ENABLE_DYNAMIC_FETCH=true
+ENABLE_DYNAMIC_FETCH=false
 API_KEY=your-secret-key
 ```
+
+Railway builds from `Dockerfile` (the default, no-browser image) by default. Dynamic fetch
+isn't available there unless you point Railway at `Dockerfile.playwright` instead (Settings
+> Build > Dockerfile Path) and set `ENABLE_DYNAMIC_FETCH=true`.
 
 **Step 3: Generate a public domain**
 
 In Railway dashboard, go to Settings > Networking > Generate Domain.
-
-### Bare Metal / VM Deployment
-
-Use the provided installation script:
-
-```bash
-sudo ./deploy/install.sh
-sudo nano /opt/freshrss-mcp-server/.env
-sudo systemctl enable freshrss-mcp
-sudo systemctl start freshrss-mcp
-```
 
 ## Available Tools
 
@@ -299,9 +336,25 @@ Fetch full article content from original URL (for summary-only feeds).
 
 **Parameters:**
 - `url`: The original article URL to fetch
-- `force_dynamic` (optional, default: false): Use Playwright browser for JS-rendered pages
+- `force_dynamic` (optional, default: false): Use browser rendering for JS-rendered pages.
+  Requires the optional `playwright` extra and `ENABLE_DYNAMIC_FETCH=true` (see
+  [Dynamic fetch](#dynamic-fetch-optional) below); otherwise returns an error.
 
 **Returns:** Extracted article content with title, text, and method ('static' or 'dynamic')
+
+#### Dynamic fetch (optional)
+
+When `force_dynamic=True` can't be used, `fetch_full_article` returns one of:
+
+| `code` | Meaning |
+|---|---|
+| `DYNAMIC_DISABLED` | `ENABLE_DYNAMIC_FETCH` is not `true` |
+| `PLAYWRIGHT_NOT_INSTALLED` | The `playwright` package isn't installed |
+| `BROWSER_NOT_INSTALLED` | Playwright is installed but `playwright install chromium` wasn't run |
+
+The static-fetch error response only includes a `force_dynamic=True` hint when dynamic
+fetch is actually usable, so a model won't be steered into retrying a call that's
+guaranteed to fail.
 
 ## Example Workflow
 
@@ -367,7 +420,7 @@ uv run ty check .
 - **httpx** - Async HTTP client
 - **Pydantic** - Data validation
 - **trafilatura** - Static article content extraction
-- **Playwright** - Dynamic content rendering (for JS-heavy sites)
+- **Playwright** (optional `playwright` extra) - Dynamic content rendering (for JS-heavy sites)
 
 ## License
 

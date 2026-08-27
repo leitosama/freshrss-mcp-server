@@ -221,10 +221,14 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
-    { name = "playwright" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "trafilatura" },
+]
+
+[package.optional-dependencies]
+playwright = [
+    { name = "playwright" },
 ]
 
 [package.dev-dependencies]
@@ -236,11 +240,12 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.25.0" },
-    { name = "playwright", specifier = ">=1.49.0" },
+    { name = "playwright", marker = "extra == 'playwright'", specifier = ">=1.55.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "trafilatura", specifier = ">=2.0.0" },
 ]
+provides-extras = ["playwright"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ty", specifier = ">=0.0.8" }]

@@ -1,12 +1,31 @@
 """Playwright browser wrapper for dynamic content fetching."""
 
+import importlib.util
 import logging
 
 logger = logging.getLogger(__name__)
 
+INSTALL_HINT = (
+    "Install the optional extra: `uv sync --extra playwright && "
+    "uv run playwright install chromium`, or use the -playwright Docker image variant."
+)
+
 # Lazy-loaded browser instance (singleton)
 _playwright = None
 _browser = None
+
+
+def is_playwright_available() -> bool:
+    """Check whether the optional playwright package is importable.
+
+    Uses find_spec so this never triggers the actual (heavy) import.
+    """
+    return importlib.util.find_spec("playwright") is not None
+
+
+def is_browser_running() -> bool:
+    """Whether a browser instance is currently open."""
+    return _browser is not None
 
 
 async def _get_browser():
