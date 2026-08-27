@@ -1,6 +1,7 @@
 """Article-related MCP tools for FreshRSS."""
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freshrss_mcp_server.api.client import FreshRSSClient
@@ -14,6 +15,7 @@ async def get_unread_articles(
     client: FreshRSSClient,
     limit: int = 100,
     feed_id: str | None = None,
+    max_age_minutes: float | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch unread articles from FreshRSS.
 
@@ -21,12 +23,19 @@ async def get_unread_articles(
         client: FreshRSS API client
         limit: Maximum number of articles to return (default: 100)
         feed_id: Optional feed ID to filter articles by specific subscription
+        max_age_minutes: Only return articles published within this many minutes
+            of now (e.g. 30 for "last 30 minutes", 1440 for "last 24h")
 
     Returns:
         List of articles with id, title, summary, link, published, feed_title, feed_id
     """
+    since = (
+        datetime.now(UTC) - timedelta(minutes=max_age_minutes)
+        if max_age_minutes is not None
+        else None
+    )
     try:
-        articles = await client.get_unread_articles(limit=limit, feed_id=feed_id)
+        articles = await client.get_unread_articles(limit=limit, feed_id=feed_id, since=since)
         return [
             ArticleResponse.from_article(article).model_dump(mode="json") for article in articles
         ]

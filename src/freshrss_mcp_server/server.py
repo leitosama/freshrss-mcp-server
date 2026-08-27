@@ -158,6 +158,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
     async def get_unread_articles(
         limit: int = 100,
         feed_id: str | None = None,
+        max_age_minutes: float | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch unread articles from FreshRSS.
 
@@ -167,12 +168,17 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         Args:
             limit: Maximum number of articles to return (default: 100)
             feed_id: Optional feed ID to filter articles by specific subscription
+            max_age_minutes: Only return articles published within this many minutes
+                of now. Use this for requests like "articles from the last 30
+                minutes" (max_age_minutes=30) or "last 24h" (max_age_minutes=1440).
 
         Returns:
             List of articles with id, title, summary, link, published, feed_title
         """
         client = await get_client()
-        return await articles.get_unread_articles(client, limit=limit, feed_id=feed_id)
+        return await articles.get_unread_articles(
+            client, limit=limit, feed_id=feed_id, max_age_minutes=max_age_minutes
+        )
 
     @server.tool()
     async def get_article_content(article_id: str) -> dict[str, Any]:
