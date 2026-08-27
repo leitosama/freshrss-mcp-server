@@ -71,6 +71,7 @@ Dockerfile.playwright      # Optional variant: adds Chromium (not published)
 | `get_unread_articles` | Fetch unread articles list |
 | `get_article_content` | Get single article content |
 | `fetch_full_article` | Scrape full content from original URL (supports `force_dynamic` for JS sites, requires optional Playwright extra) |
+| `get_article_links` | Build FreshRSS web UI links for one or many articles |
 | `mark_as_read` | Mark articles as read |
 | `get_subscriptions` | Get subscription feeds list |
 
@@ -81,6 +82,12 @@ Dockerfile.playwright      # Optional variant: adds Chromium (not published)
 FRESHRSS_API_URL=https://your-freshrss-instance/api/greader.php
 FRESHRSS_USERNAME=your_username
 FRESHRSS_API_PASSWORD=your_api_password
+
+# Optional: Link building
+FRESHRSS_BASE_URL=       # Public URL of the FreshRSS web UI, used to build article
+                         # links. Defaults to FRESHRSS_API_URL without
+                         # "/api/greader.php"; set it when the two differ, e.g.
+                         # Docker Compose internal hostnames.
 
 # Optional: MCP Server (defaults shown)
 MCP_TRANSPORT=sse           # "stdio", "sse", or "streamable-http"
@@ -512,5 +519,8 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
    - If content appears incomplete (JS placeholders) and the tool description
      indicates dynamic fetch is available, retry with `force_dynamic=True`
-4. AI generates summary report for all articles
-5. After user reads, AI calls `mark_as_read` to mark as read
+4. AI generates summary report for all articles, linking each one via the
+   `freshrss_url` the article already carries
+5. For "open all of these in FreshRSS", AI calls `get_article_links` to get one
+   URL covering the whole batch
+6. After user reads, AI calls `mark_as_read` to mark as read
