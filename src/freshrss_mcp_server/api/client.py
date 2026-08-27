@@ -1,6 +1,7 @@
 """FreshRSS Google Reader API client."""
 
 import logging
+from datetime import datetime
 from types import TracebackType
 from urllib.parse import quote, urlencode
 
@@ -236,6 +237,8 @@ class FreshRSSClient:
         count: int = 100,
         continuation: str | None = None,
         exclude_target: str | None = None,
+        start_time: int | None = None,
+        stop_time: int | None = None,
     ) -> StreamContents:
         """Get contents of a stream (feed, category, or state).
 
@@ -244,6 +247,8 @@ class FreshRSSClient:
             count: Maximum number of items to return
             continuation: Continuation token for pagination
             exclude_target: State tag to exclude (e.g., read articles)
+            start_time: Only return items published at or after this Unix timestamp
+            stop_time: Only return items published at or before this Unix timestamp
 
         Returns:
             StreamContents with articles.
@@ -266,6 +271,10 @@ class FreshRSSClient:
             params["c"] = continuation
         if exclude_target:
             params["xt"] = exclude_target
+        if start_time is not None:
+            params["ot"] = start_time
+        if stop_time is not None:
+            params["nt"] = stop_time
 
         try:
             response = await client.get(
@@ -287,12 +296,14 @@ class FreshRSSClient:
         self,
         limit: int = 100,
         feed_id: str | None = None,
+        since: datetime | None = None,
     ) -> list[Article]:
         """Get unread articles.
 
         Args:
             limit: Maximum number of articles to return
             feed_id: Optional feed ID to filter by
+            since: Only return articles published at or after this time
 
         Returns:
             List of unread Article objects.
@@ -302,6 +313,7 @@ class FreshRSSClient:
         """
         stream_id = feed_id if feed_id else STATE_READING_LIST
         exclude = STATE_READ
+        start_time = int(since.timestamp()) if since else None
 
         articles: list[Article] = []
         continuation: str | None = None
@@ -315,6 +327,7 @@ class FreshRSSClient:
                 count=batch_size,
                 continuation=continuation,
                 exclude_target=exclude,
+                start_time=start_time,
             )
 
             articles.extend(stream.items)
@@ -323,6 +336,10 @@ class FreshRSSClient:
                 break
 
             continuation = stream.continuation
+
+        # Belt-and-braces: filter client-side too, in case the server ignores `ot`.
+        if since is not None:
+            articles = [a for a in articles if a.published_at >= since]
 
         return articles[:limit]
 

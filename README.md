@@ -307,6 +307,8 @@ Fetch unread articles from FreshRSS.
 **Parameters:**
 - `limit` (optional, default: 100): Maximum number of articles to return
 - `feed_id` (optional): Filter by specific feed ID
+- `max_age_minutes` (optional): Only return articles published within this many
+  minutes of now (e.g. `30` for the last 30 minutes, `1440` for the last 24h)
 
 **Returns:** List of articles with id, title, summary, link, published, feed_title
 
