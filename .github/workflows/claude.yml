@@ -37,6 +37,6 @@ jobs:
       actions: read
     steps:
       - name: Run Claude
-        uses: anthropics/claude-code-action@7c4f5666d6e5f16b43deca1eb6f803ff749a9d9f # v1.0.207
+        uses: anthropics/claude-code-action@70fec183852c4f82f3f1969faed7dd60c5149ca7 # v1.0.207
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
