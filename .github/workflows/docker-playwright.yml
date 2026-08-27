@@ -1,0 +1,56 @@
+name: Validate Playwright image (build only)
+
+# Keeps the optional Dockerfile.playwright variant from rotting. This image
+# is intentionally NOT published anywhere: build it yourself with
+#   docker build -f Dockerfile.playwright -t freshrss-mcp:playwright .
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.playwright
+      - pyproject.toml
+      - uv.lock
+      - src/**
+      - .github/workflows/docker-playwright.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile.playwright
+      - pyproject.toml
+      - uv.lock
+      - src/**
+      - .github/workflows/docker-playwright.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.playwright
+          platforms: linux/amd64
+          load: true
+          tags: freshrss-mcp:playwright-ci
+          push: false
+          cache-from: type=gha,scope=playwright
+          cache-to: type=gha,mode=max,scope=playwright
+
+      - name: Smoke test
+        run: |
+          docker run --rm \
+            -e FRESHRSS_API_URL=http://example.invalid/api/greader.php \
+            -e FRESHRSS_USERNAME=ci -e FRESHRSS_API_PASSWORD=ci \
+            freshrss-mcp:playwright-ci freshrss-mcp --version
+          docker run --rm freshrss-mcp:playwright-ci playwright --version

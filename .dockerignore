@@ -8,6 +8,7 @@ __pycache__
 .ruff_cache
 *.md
 !README.md
-deploy/
+.github
 docker-compose.yml
 Dockerfile
+Dockerfile.playwright

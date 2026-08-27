@@ -13,8 +13,8 @@ An MCP (Model Context Protocol) Server that connects to a self-hosted FreshRSS i
 - **MCP SDK**: mcp-python-sdk (mcp[cli] >= 1.25.0)
 - **HTTP Client**: httpx (async)
 - **Data Validation**: Pydantic + pydantic-settings
-- **Article Extraction**: trafilatura (static), Playwright (dynamic)
-- **Browser Automation**: Playwright (for JS-rendered pages)
+- **Article Extraction**: trafilatura (static), Playwright (dynamic, optional)
+- **Browser Automation**: Playwright (optional `playwright` extra, disabled by default)
 - **API**: FreshRSS Google Reader compatible API
 
 ## Development Guidelines
@@ -56,12 +56,12 @@ src/freshrss_mcp_server/
 └── tools/
     ├── __init__.py
     ├── articles.py        # Article-related tools
-    ├── fetcher.py         # Full article fetcher (static + dynamic)
-    └── browser.py         # Playwright browser wrapper
+    ├── fetcher.py         # Full article fetcher (static + optional dynamic)
+    └── browser.py         # Playwright browser wrapper (lazy import)
 
-deploy/                    # Deployment configurations
-├── freshrss-mcp.service   # Systemd service file
-└── install.sh             # Bare metal installation script
+Dockerfile                 # Default image: no browser, dynamic fetch unavailable
+Dockerfile.playwright      # Optional variant: adds Chromium (not published)
+.github/workflows/         # CI: publish default image, build-validate playwright image
 ```
 
 ## MCP Tools
@@ -70,7 +70,7 @@ deploy/                    # Deployment configurations
 |------|-------------|
 | `get_unread_articles` | Fetch unread articles list |
 | `get_article_content` | Get single article content |
-| `fetch_full_article` | Scrape full content from original URL (supports `force_dynamic` for JS sites) |
+| `fetch_full_article` | Scrape full content from original URL (supports `force_dynamic` for JS sites, requires optional Playwright extra) |
 | `mark_as_read` | Mark articles as read |
 | `get_subscriptions` | Get subscription feeds list |
 
@@ -87,8 +87,8 @@ MCP_TRANSPORT=sse           # "stdio", "sse", or "streamable-http"
 MCP_HOST=::                 # HTTP server host (:: = all interfaces, IPv4+IPv6)
 MCP_PORT=8080               # HTTP server port (Railway auto-injects PORT)
 
-# Optional: Dynamic fetch / Playwright (defaults shown)
-ENABLE_DYNAMIC_FETCH=true   # Enable Playwright for JS-rendered pages
+# Optional: Dynamic fetch / Playwright (defaults shown; requires the "playwright" extra)
+ENABLE_DYNAMIC_FETCH=false  # Enable Playwright for JS-rendered pages
 BROWSER_TIMEOUT=30          # Playwright page load timeout in seconds
 
 # Optional: Logging
@@ -118,7 +118,8 @@ By default, the server starts in SSE mode for remote deployment:
 # Install dependencies
 uv sync
 
-# Install Playwright browser (required for dynamic fetch)
+# Optional: dynamic (JS-rendered) fetch support
+uv sync --extra playwright
 uv run playwright install chromium
 
 # Run with defaults (SSE on 0.0.0.0:8080)
@@ -184,7 +185,12 @@ Available at `/health` for SSE and Streamable HTTP modes:
 
 ```bash
 curl http://localhost:8080/health
-# {"status": "healthy", "version": "0.1.0", "transport": "streamable-http"}
+# {
+#   "status": "healthy",
+#   "version": "0.1.0",
+#   "transport": "streamable-http",
+#   "dynamic_fetch": {"enabled": false, "playwright_installed": false}
+# }
 ```
 
 Use for:
@@ -209,7 +215,8 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8080/mcp
 ### Graceful Shutdown
 
 The server handles SIGTERM and SIGINT signals gracefully:
-- Closes Playwright browser instances
+- Closes the Playwright browser instance, if one was started (no-op when dynamic fetch
+  is disabled or not installed)
 - Cleans up resources before exit
 
 This is important for container deployments and systemd services.
@@ -235,7 +242,18 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Or build and run manually:
+Or pull the published image:
+
+```bash
+docker run -p 8080:8080 \
+  -e FRESHRSS_API_URL=https://your-freshrss/api/greader.php \
+  -e FRESHRSS_USERNAME=your_username \
+  -e FRESHRSS_API_PASSWORD=your_password \
+  -e API_KEY=your-secret-key \
+  ghcr.io/leitosama/freshrss-mcp-server:latest
+```
+
+Or build manually:
 
 ```bash
 docker build -t freshrss-mcp .
@@ -247,10 +265,17 @@ docker run -p 8080:8080 \
   freshrss-mcp
 ```
 
-The Docker image includes:
+The default `Dockerfile` (the only variant published to GHCR):
+- Has no browser installed — dynamic fetch unavailable, `ENABLE_DYNAMIC_FETCH=false`
 - Health check configuration
-- Playwright browser pre-installed
 - Streamable HTTP as default transport
+
+For dynamic fetch, build `Dockerfile.playwright` yourself (not published — CI only
+builds it to validate it still works):
+
+```bash
+docker build -f Dockerfile.playwright -t freshrss-mcp:playwright .
+```
 
 ### Railway Deployment
 
@@ -278,9 +303,13 @@ FRESHRSS_API_PASSWORD=your_api_password
 
 # Recommended settings
 MCP_TRANSPORT=streamable-http
-ENABLE_DYNAMIC_FETCH=true
+ENABLE_DYNAMIC_FETCH=false
 API_KEY=your-secret-key  # For public access security
 ```
+
+Railway builds from `Dockerfile` (no browser) by default. For dynamic fetch, point
+Railway at `Dockerfile.playwright` instead (Settings > Build > Dockerfile Path) and set
+`ENABLE_DYNAMIC_FETCH=true`.
 
 > **Note**: Replace `freshrss` in the URL with your actual FreshRSS service name. Check your service name in Railway dashboard.
 
@@ -309,26 +338,6 @@ In Railway dashboard, go to Settings > Networking > Generate Domain.
 }
 ```
 
-### Bare Metal / VM Deployment
-
-Use the provided installation script:
-
-```bash
-# Run as root
-sudo ./deploy/install.sh
-
-# Edit configuration
-sudo nano /opt/freshrss-mcp-server/.env
-
-# Start the service
-sudo systemctl enable freshrss-mcp
-sudo systemctl start freshrss-mcp
-
-# Check status
-sudo systemctl status freshrss-mcp
-sudo journalctl -u freshrss-mcp -f
-```
-
 ## Development Commands
 
 **IMPORTANT**: Run these commands after every code change.
@@ -350,6 +359,9 @@ ruff format --check .
 ```
 
 ### Type Checking (ty)
+
+Sync with the `playwright` extra first (`uv sync --extra playwright`), otherwise
+`tools/browser.py`'s lazy `playwright.async_api` import can't be resolved.
 
 ```bash
 # Type check the project
@@ -421,6 +433,7 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
 1. AI calls `get_unread_articles` to fetch unread article list
 2. AI analyzes titles and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
-   - If content appears incomplete (JS placeholders), retry with `force_dynamic=True`
+   - If content appears incomplete (JS placeholders) and the tool description
+     indicates dynamic fetch is available, retry with `force_dynamic=True`
 4. AI generates summary report for all articles
 5. After user reads, AI calls `mark_as_read` to mark as read
