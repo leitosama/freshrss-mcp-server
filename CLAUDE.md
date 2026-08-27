@@ -8,7 +8,7 @@ An MCP (Model Context Protocol) Server that connects to a self-hosted FreshRSS i
 
 - **Language**: Python 3.14
 - **Package Manager**: UV
-- **Linter/Formatter**: Ruff (installed via `uv tool install ruff@latest`)
+- **Linter/Formatter**: Ruff (managed as a `uv` dev dependency, see `pyproject.toml`)
 - **Type Checker**: ty (dev dependency)
 - **MCP SDK**: mcp-python-sdk (mcp[cli] >= 1.25.0)
 - **HTTP Client**: httpx (async)
@@ -344,18 +344,22 @@ In Railway dashboard, go to Settings > Networking > Generate Domain.
 
 ### Linting & Formatting (Ruff)
 
+Ruff is a managed `dev` dependency (`pyproject.toml`), not a standalone
+`uv tool install` — run it through `uv run` so the version matches CI and
+`uv.lock` exactly.
+
 ```bash
 # Check for linting issues
-ruff check .
+uv run ruff check .
 
 # Auto-fix linting issues
-ruff check --fix .
+uv run ruff check --fix .
 
 # Format code
-ruff format .
+uv run ruff format .
 
 # Check formatting without changes
-ruff format --check .
+uv run ruff format --check .
 ```
 
 ### Type Checking (ty)
@@ -374,8 +378,12 @@ uv run ty check src/
 ### All-in-One (run after code changes)
 
 ```bash
-ruff format . && ruff check --fix . && uv run ty check .
+uv run ruff format . && uv run ruff check --fix . && uv run ty check .
 ```
+
+This is exactly what `.github/workflows/ci.yml` enforces on every push and
+PR (plus `uv lock --check` and an import smoke test) — a clean run here
+means CI will be clean too.
 
 ### MCP Inspector (Local Debugging)
 
@@ -413,6 +421,75 @@ async def test():
 asyncio.run(test())
 "
 ```
+
+## Dependency Maintenance
+
+Dependabot, a CI quality gate, and three security scanners keep this repo
+current. Full detail lives in `.github/dependabot.yml` and the workflows
+under `.github/workflows/`; this section is the operating summary.
+
+### The Friday/Saturday rhythm
+
+Dependabot opens PRs every **Friday 06:00 UTC** across three ecosystems
+(`github-actions`, `docker`, `uv`), grouped so minor+patch land as one PR
+per ecosystem. `.github/workflows/ci.yml` (lint, format, type-check,
+import smoke test) plus CodeQL/zizmor/OSV-Scanner gate every PR, and
+`.github/workflows/dependabot-auto-merge.yml` auto-merges patch/minor
+bumps once those checks are green — deliberately timed so that's usually
+done before Saturday (the actual dev day for this project). Majors are
+never auto-merged and wait for review.
+
+**Expected steady state: zero open Dependabot PRs most Saturdays.** If
+there's a backlog, something (CI, a required check, auto-merge itself) is
+stuck — check `.github/workflows/dependabot-auto-merge.yml`'s runs before
+assuming the bumps themselves are the problem.
+
+### What Dependabot can't see
+
+No scheduled steward runs against these — they only get caught by whoever
+(you, or `@claude`) is looking. Check this list occasionally, especially
+after a `docker` or `uv` ecosystem bump:
+
+| Thing | Where | Why it's invisible to Dependabot |
+|---|---|---|
+| `ghcr.io/astral-sh/uv:X.Y.Z` | `COPY --from=` in both Dockerfiles | Dependabot's `docker` ecosystem parses `FROM` lines only. `COPY --from` support is [dependabot-core#12988](https://github.com/dependabot/dependabot-core/pull/12988) — check if it's merged; delete this row once it ships. |
+| Python version coherence | `Dockerfile`, `Dockerfile.playwright`, `.python-version`, `pyproject.toml` (`requires-python`), `[tool.ruff] target-version` | A `python:*-slim` bump from Dependabot only touches the Docker tag. The other four spots drift unless updated together, by hand. |
+| Chromium version | `playwright install --with-deps chromium` in `Dockerfile.playwright` | Floats with whatever `playwright` package version is pinned; not a separate manifest entry. |
+
+### Handling `@claude` on Dependabot PRs
+
+`.github/workflows/claude.yml` responds to an `@claude` mention in a PR or
+issue comment/review, or an issue assignment — same as any other
+`@claude`-triggered workflow. It is **not** wired to run automatically on
+Dependabot PRs; you have to invoke it.
+
+**When to reach for it:**
+- A major-version bump that needs judgement.
+- The Python version bump specifically — it needs the five-file
+  coordinated update above.
+- Red CI on a Dependabot PR that needs diagnosing.
+- "What actually changed transitively in this `uv.lock` diff?"
+
+**When not to:** patch/minor PRs — auto-merge will take those once CI is
+green, so there's usually nothing to do.
+
+Example prompts, left as comments on the PR:
+
+- `@claude this bumps python to 3.15-slim — update .python-version, requires-python and the ruff target-version to match, and confirm both Dockerfiles still build`
+- `@claude summarize what changed transitively in uv.lock here and flag anything risky`
+- `@claude the playwright image build failed on this bump — diagnose and fix`
+- `@claude check what Dependabot can't see: the ghcr.io/astral-sh/uv COPY --from tag, and python version alignment across all 5 files`
+
+**Two things to get right when Claude pushes to a `dependabot/*` branch:**
+
+1. **Include `[dependabot skip]` in the commit message.** Dependabot stops
+   rebasing a PR once anyone else pushes to its branch, unless the commit
+   message contains `[dependabot skip]` (case-insensitive). Omitting this
+   silently breaks that PR's ability to pick up further upstream changes.
+2. **Don't push to a PR you expect auto-merge to take.** A push resets
+   review state and can race the auto-merge workflow. Reserve `@claude`
+   for majors and the Python bump, where auto-merge was never going to
+   fire anyway.
 
 ## FreshRSS API Reference
 

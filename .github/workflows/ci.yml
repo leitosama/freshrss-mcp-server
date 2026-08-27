@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      # Catches pyproject.toml / uv.lock drift before it reaches a PR.
+      - name: Check lockfile is in sync
+        run: uv lock --check
+
+      # The playwright extra is required here even though this job never
+      # touches a browser: ty needs it importable to resolve the lazy
+      # `playwright.async_api` import in tools/browser.py.
+      - name: Sync dependencies
+        run: uv sync --locked --extra playwright
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Type check (ty)
+        run: uv run ty check .
+
+      # Doubles as an import smoke test. `--version` still builds argparse
+      # defaults from Settings first (see server.py:parse_args), so it
+      # needs FreshRSS env vars even though it never uses them — same as
+      # the Docker smoke-test steps in docker-publish.yml.
+      - name: Import smoke test
+        env:
+          FRESHRSS_API_URL: http://example.invalid/api/greader.php
+          FRESHRSS_USERNAME: ci
+          FRESHRSS_API_PASSWORD: ci
+        run: uv run freshrss-mcp --version

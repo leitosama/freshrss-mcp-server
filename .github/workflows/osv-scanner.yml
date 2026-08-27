@@ -1,0 +1,34 @@
+name: OSV-Scanner
+
+# Python dependency CVE scanning against uv.lock. This is load-bearing:
+# GitHub's dependency graph does not parse uv.lock, so Dependabot *alerts*
+# (as opposed to version-update PRs) do not cover this project's Python
+# dependencies at all. This workflow is what actually closes that gap.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 5"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  scan-pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+
+  scan-scheduled:
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
