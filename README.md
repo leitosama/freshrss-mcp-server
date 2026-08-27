@@ -56,6 +56,11 @@ FRESHRSS_API_URL=https://your-freshrss-instance/api/greader.php
 FRESHRSS_USERNAME=your_username
 FRESHRSS_API_PASSWORD=your_api_password
 
+# Optional: Link building
+# Public URL of the FreshRSS web UI. Defaults to FRESHRSS_API_URL without
+# "/api/greader.php". Set it when the two differ (e.g. Docker Compose).
+FRESHRSS_BASE_URL=https://your-freshrss-instance
+
 # Optional: Request settings
 REQUEST_TIMEOUT=30
 DEFAULT_ARTICLE_LIMIT=100
@@ -310,7 +315,8 @@ Fetch unread articles from FreshRSS.
 - `max_age_minutes` (optional): Only return articles published within this many
   minutes of now (e.g. `30` for the last 30 minutes, `1440` for the last 24h)
 
-**Returns:** List of articles with id, title, summary, link, published, feed_title
+**Returns:** List of articles with id, title, summary, link, published, feed_title,
+and `freshrss_url` (a link that opens the article in the FreshRSS web UI)
 
 ### `get_article_content`
 Get full content of a specific article.
@@ -318,7 +324,20 @@ Get full content of a specific article.
 **Parameters:**
 - `article_id`: The article ID to fetch
 
-**Returns:** Article with full content
+**Returns:** Article with full content, including `freshrss_url`
+
+### `get_article_links`
+Build links that open articles in the FreshRSS web UI. Single articles already
+carry a `freshrss_url`, so this is mainly for batches: it returns one URL that
+opens every given article together.
+
+**Parameters:**
+- `article_ids`: List of article IDs to build links for. Both the long
+  `tag:google.com,2005:reader/item/...` form and the plain numeric form work.
+
+**Returns:** `base_url`, `batch_urls` (usually a single URL showing every
+article at once), `links` (one url per article), and `invalid_ids` for any IDs
+that could not be converted
 
 ### `mark_as_read`
 Mark articles as read.
@@ -343,6 +362,21 @@ Fetch full article content from original URL (for summary-only feeds).
   [Dynamic fetch](#dynamic-fetch-optional) below); otherwise returns an error.
 
 **Returns:** Extracted article content with title, text, and method ('static' or 'dynamic')
+
+#### How FreshRSS links are built
+
+FreshRSS's Google Reader API reports article IDs as
+`tag:google.com,2005:reader/item/00065a0a9a6c0360` -- the entry's internal ID in
+16-digit hex. The web UI's `e:` search operator only accepts decimal IDs, so the
+server converts them and builds:
+
+```
+{FRESHRSS_BASE_URL}/i/?a=normal&state=3&search=e:<id1>,<id2>,...
+```
+
+`state=3` is `STATE_READ | STATE_NOT_READ`. It is required: without it FreshRSS
+falls back to your default view state, which is usually unread-only, so a link
+to an already-read article would open an empty list.
 
 #### Dynamic fetch (optional)
 

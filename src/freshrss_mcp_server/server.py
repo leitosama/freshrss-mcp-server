@@ -173,7 +173,8 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
                 minutes" (max_age_minutes=30) or "last 24h" (max_age_minutes=1440).
 
         Returns:
-            List of articles with id, title, summary, link, published, feed_title
+            List of articles with id, title, summary, link, published, feed_title,
+            and freshrss_url (a link that opens the article in the FreshRSS web UI)
         """
         client = await get_client()
         return await articles.get_unread_articles(
@@ -191,10 +192,35 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             article_id: The article ID to fetch (from get_unread_articles)
 
         Returns:
-            Article with full content including id, title, content, link, published
+            Article with full content including id, title, content, link, published,
+            and freshrss_url (a link that opens the article in the FreshRSS web UI)
         """
         client = await get_client()
         return await articles.get_article_content(client, article_id=article_id)
+
+    @server.tool()
+    async def get_article_links(article_ids: list[str]) -> dict[str, Any]:
+        """Build links that open articles in the FreshRSS web UI.
+
+        Use this to give the user one clickable link that opens a whole batch of
+        articles together in FreshRSS - for example every article you just
+        summarized. Single articles already carry a freshrss_url field from
+        get_unread_articles and get_article_content, so reach for this tool
+        mainly for batches.
+
+        Article IDs come from get_unread_articles. Both the long
+        "tag:google.com,2005:reader/item/..." form and the plain numeric form
+        are accepted.
+
+        Args:
+            article_ids: List of article IDs to build links for
+
+        Returns:
+            base_url, batch_urls (usually a single URL showing every article at
+            once), links (one url per article), and invalid_ids for any IDs that
+            could not be converted
+        """
+        return articles.get_article_links(article_ids=article_ids)
 
     @server.tool()
     async def mark_as_read(article_ids: list[str]) -> dict[str, Any]:

@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
+from freshrss_mcp_server.links import ArticleIdError, build_article_url, to_entry_id
+
 # =============================================================================
 # Authentication Models
 # =============================================================================
@@ -130,6 +132,18 @@ class UnreadCountResponse(BaseModel):
 # =============================================================================
 
 
+def article_web_url(article_id: str, web_url: str) -> str | None:
+    """Build the FreshRSS web UI link for one article.
+
+    Returns None rather than raising if the ID cannot be converted, so a single
+    malformed ID never fails a whole article listing.
+    """
+    try:
+        return build_article_url(web_url, [to_entry_id(article_id)])
+    except ArticleIdError:
+        return None
+
+
 class ArticleResponse(BaseModel):
     """Simplified article for MCP tool response."""
 
@@ -140,10 +154,16 @@ class ArticleResponse(BaseModel):
     published: datetime
     feed_title: str
     feed_id: str
+    freshrss_url: str | None = None
 
     @classmethod
-    def from_article(cls, article: Article) -> ArticleResponse:
-        """Create from API Article model."""
+    def from_article(cls, article: Article, web_url: str) -> ArticleResponse:
+        """Create from API Article model.
+
+        Args:
+            article: Article from the Google Reader API
+            web_url: Root URL of the FreshRSS web UI, used to build freshrss_url
+        """
         return cls(
             id=article.id,
             title=article.title,
@@ -152,6 +172,7 @@ class ArticleResponse(BaseModel):
             published=article.published_at,
             feed_title=article.origin.title if article.origin else "",
             feed_id=article.origin.stream_id if article.origin else "",
+            freshrss_url=article_web_url(article.id, web_url),
         )
 
 
