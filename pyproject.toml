@@ -23,6 +23,7 @@ playwright = [
 [dependency-groups]
 dev = [
     "ty>=0.0.8",
+    "ruff>=0.14.0",
 ]
 
 [build-system]

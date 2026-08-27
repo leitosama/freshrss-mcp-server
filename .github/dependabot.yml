@@ -1,0 +1,63 @@
+version: 2
+updates:
+  # CI: keep every `uses:` reference (including reusable-workflow refs like
+  # the OSV-Scanner ones in osv-scanner.yml) current and SHA-pinned.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "ci"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Scans the directory, so this one entry covers both Dockerfile and
+  # Dockerfile.playwright. Does NOT see the `ghcr.io/astral-sh/uv` pin in
+  # their COPY --from lines (Dependabot's docker ecosystem only parses FROM
+  # lines) — see the "Dependency Maintenance" section in CLAUDE.md.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "build"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+
+  # pyproject.toml + uv.lock. Deliberately NOT ignoring python's own
+  # >=3.14 floor or a `python:*-slim` major bump: those PRs are the
+  # reminder to update the other files that must move in lockstep (see
+  # CLAUDE.md's "Dependency Maintenance" section).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "deps"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
