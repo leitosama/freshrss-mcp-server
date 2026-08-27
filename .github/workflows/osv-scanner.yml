@@ -32,3 +32,26 @@ jobs:
       contents: read
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+
+  # Absolute scan on PRs. `scan-pr` above is *differential* — it only fails on
+  # vulnerabilities the PR itself introduces — so a PR merging into an already
+  # vulnerable `main` goes green, and `scan-scheduled` then fails on the merge
+  # commit for problems that predate the PR. This job makes the PR check enforce
+  # what `main` enforces.
+  #
+  # upload-sarif: false — both reusable workflows name their job `osv-scan`, so
+  # both derive the same CodeQL analysis key
+  # (.github/workflows/osv-scanner.yml:osv-scan); two SARIF uploads under one key
+  # on the same commit collide. `scan-pr` keeps the code-scanning upload.
+  # matrix-property — prefixes the result file and artifact name so this job's
+  # "OSV Scanner SARIF file" upload does not collide with `scan-pr`'s.
+  scan-pr-absolute:
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+    with:
+      upload-sarif: false
+      matrix-property: "absolute-"
