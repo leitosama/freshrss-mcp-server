@@ -68,7 +68,7 @@ Dockerfile.playwright      # Optional variant: adds Chromium (not published)
 
 | Tool | Description |
 |------|-------------|
-| `get_unread_articles` | Fetch unread articles list |
+| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`) |
 | `get_article_content` | Get single article content |
 | `fetch_full_article` | Scrape full content from original URL (supports `force_dynamic` for JS sites, requires optional Playwright extra) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
@@ -515,6 +515,8 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
 ## Usage Flow
 
 1. AI calls `get_unread_articles` to fetch unread article list
+   - For a digest scoped to one user label, pass `label` (e.g. `label="news"`);
+     it is mutually exclusive with `feed_id` and matches the label name exactly
 2. AI analyzes titles and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
    - If content appears incomplete (JS placeholders) and the tool description

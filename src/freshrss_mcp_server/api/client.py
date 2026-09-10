@@ -23,6 +23,30 @@ STATE_READ = "user/-/state/com.google/read"
 STATE_STARRED = "user/-/state/com.google/starred"
 STATE_READING_LIST = "user/-/state/com.google/reading-list"
 
+# Google Reader API prefix for FreshRSS user labels (tags)
+LABEL_PREFIX = "user/-/label/"
+
+
+def build_label_stream_id(label: str) -> str:
+    """Build a Google Reader stream ID for a FreshRSS user label.
+
+    Args:
+        label: User label name as shown in FreshRSS (e.g. "news"), or an
+            already-built stream ID (e.g. "user/-/label/news")
+
+    Returns:
+        Stream ID of the form "user/-/label/<name>".
+
+    Raises:
+        ValueError: If the label is empty or whitespace only.
+    """
+    name = label.strip()
+    if not name:
+        raise ValueError("Label name must not be empty")
+    if name.startswith(LABEL_PREFIX):
+        return name
+    return f"{LABEL_PREFIX}{name}"
+
 
 class FreshRSSClient:
     """Async client for FreshRSS Google Reader API."""
@@ -297,6 +321,7 @@ class FreshRSSClient:
         limit: int = 100,
         feed_id: str | None = None,
         since: datetime | None = None,
+        label: str | None = None,
     ) -> list[Article]:
         """Get unread articles.
 
@@ -304,14 +329,25 @@ class FreshRSSClient:
             limit: Maximum number of articles to return
             feed_id: Optional feed ID to filter by
             since: Only return articles published at or after this time
+            label: Optional user label name to filter by. Mutually exclusive
+                with feed_id -- the API addresses one stream per request.
 
         Returns:
             List of unread Article objects.
 
         Raises:
+            ValueError: If both feed_id and label are given, or label is empty.
             APIError: If request fails.
         """
-        stream_id = feed_id if feed_id else STATE_READING_LIST
+        if feed_id and label:
+            raise ValueError("Pass either feed_id or label, not both")
+
+        if label:
+            stream_id = build_label_stream_id(label)
+        elif feed_id:
+            stream_id = feed_id
+        else:
+            stream_id = STATE_READING_LIST
         exclude = STATE_READ
         start_time = int(since.timestamp()) if since else None
 

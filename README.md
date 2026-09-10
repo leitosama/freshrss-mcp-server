@@ -314,6 +314,10 @@ Fetch unread articles from FreshRSS.
 - `feed_id` (optional): Filter by specific feed ID
 - `max_age_minutes` (optional): Only return articles published within this many
   minutes of now (e.g. `30` for the last 30 minutes, `1440` for the last 24h)
+- `label` (optional): Filter by user label (tag) name, e.g. `news`. Spell it exactly
+  as it appears in FreshRSS - matching is case-sensitive. Mutually exclusive with
+  `feed_id`: the FreshRSS API reads one stream per request, so passing both returns
+  an `INVALID_ARGS` error.
 
 **Returns:** List of articles with id, title, summary, link, published, feed_title,
 and `freshrss_url` (a link that opens the article in the FreshRSS web UI)
@@ -395,6 +399,7 @@ guaranteed to fail.
 ## Example Workflow
 
 1. AI calls `get_unread_articles` to fetch unread article list
+   - To build a digest of one label, pass `label` (e.g. `get_unread_articles(label="news")`)
 2. AI analyzes titles and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
 4. AI generates summary report for all articles
