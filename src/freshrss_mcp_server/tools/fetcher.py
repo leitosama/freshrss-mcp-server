@@ -1,13 +1,10 @@
-"""Full article fetcher with fallback to dynamic rendering."""
+"""Full article fetcher (static extraction via trafilatura)."""
 
 import logging
 from typing import Any
 
 import httpx
 import trafilatura
-
-from freshrss_mcp_server.config import get_settings
-from freshrss_mcp_server.tools import browser
 
 logger = logging.getLogger(__name__)
 
@@ -86,89 +83,25 @@ def _extract_content(html: str) -> dict[str, Any] | None:
 
 async def fetch_full_article(
     url: str,
-    force_dynamic: bool = False,
     timeout: int = 30,
 ) -> dict[str, Any]:
     """Fetch full article content from original URL.
 
-    By default, uses fast static fetching (trafilatura).
-    If the returned content seems incomplete or contains only
-    JavaScript placeholders, call again with force_dynamic=True.
+    Uses static fetching (httpx + trafilatura). JS-rendered pages are out of
+    scope for this server; a caller that needs to render JavaScript should
+    use its own browser-capable tool against the original URL instead.
 
     Args:
         url: The original article URL to fetch
-        force_dynamic: Force browser rendering for JS-heavy sites (requires the
-            optional "playwright" extra and ENABLE_DYNAMIC_FETCH=true)
-        timeout: Request timeout in seconds for static fetch (default: 30).
-            Dynamic fetch always uses BROWSER_TIMEOUT instead.
+        timeout: Request timeout in seconds (default: 30)
 
     Returns:
         Extracted article with content, title, author, date, url, and method.
-        The 'method' field indicates 'static' or 'dynamic' fetch was used.
+        The 'method' field is always 'static'.
     """
     if not url:
         return {"error": True, "message": "URL is required", "code": "INVALID_INPUT"}
 
-    settings = get_settings()
-    dynamic_available = settings.enable_dynamic_fetch and browser.is_playwright_available()
-
-    # ========== Dynamic fetch (Playwright, optional extra) ==========
-    if force_dynamic:
-        if not settings.enable_dynamic_fetch:
-            return {
-                "error": True,
-                "message": (
-                    "Dynamic fetch is disabled. Set ENABLE_DYNAMIC_FETCH=true to enable it "
-                    "(the optional playwright extra must also be installed)."
-                ),
-                "code": "DYNAMIC_DISABLED",
-            }
-
-        if not browser.is_playwright_available():
-            return {
-                "error": True,
-                "message": f"Playwright is not installed. {browser.INSTALL_HINT}",
-                "code": "PLAYWRIGHT_NOT_INSTALLED",
-            }
-
-        try:
-            html = await browser.fetch_rendered_html(url, timeout=settings.browser_timeout)
-            result = _extract_content(html)
-
-            if result:
-                result["url"] = url
-                result["method"] = "dynamic"
-                return result
-
-            return {
-                "error": True,
-                "message": "Could not extract content after dynamic rendering",
-                "code": "EXTRACTION_FAILED",
-            }
-
-        except ImportError:
-            return {
-                "error": True,
-                "message": f"Playwright is not installed. {browser.INSTALL_HINT}",
-                "code": "PLAYWRIGHT_NOT_INSTALLED",
-            }
-        except Exception as e:
-            message = str(e)
-            if "Executable doesn't exist" in message:
-                logger.error("Chromium browser missing for %s: %s", url, e)
-                return {
-                    "error": True,
-                    "message": f"Chromium browser is not installed. {browser.INSTALL_HINT}",
-                    "code": "BROWSER_NOT_INSTALLED",
-                }
-            logger.error("Dynamic fetch failed for %s: %s", url, e)
-            return {
-                "error": True,
-                "message": f"Dynamic fetch failed: {e}",
-                "code": "DYNAMIC_FETCH_FAILED",
-            }
-
-    # ========== Static fetch (trafilatura) ==========
     try:
         html = await _fetch_static(url, timeout)
         result = _extract_content(html)
@@ -178,14 +111,11 @@ async def fetch_full_article(
             result["method"] = "static"
             return result
 
-        failure: dict[str, Any] = {
+        return {
             "error": True,
             "message": "Could not extract content from page",
             "code": "EXTRACTION_FAILED",
         }
-        if dynamic_available:
-            failure["hint"] = "Try calling with force_dynamic=True for JS-rendered pages"
-        return failure
 
     except httpx.TimeoutException:
         logger.error("Timeout fetching URL: %s", url)

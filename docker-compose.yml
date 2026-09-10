@@ -3,8 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # For dynamic (JS-rendered) fetch, build the Playwright variant instead:
-      #   dockerfile: Dockerfile.playwright
     ports:
       - "8080:8080"
     environment:
@@ -12,6 +10,5 @@ services:
       - FRESHRSS_USERNAME=${FRESHRSS_USERNAME}
       - FRESHRSS_API_PASSWORD=${FRESHRSS_API_PASSWORD}
       - MCP_TRANSPORT=streamable-http
-      - ENABLE_DYNAMIC_FETCH=${ENABLE_DYNAMIC_FETCH:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     restart: unless-stopped
