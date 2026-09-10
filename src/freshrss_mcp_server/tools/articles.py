@@ -24,6 +24,7 @@ async def get_unread_articles(
     feed_id: str | None = None,
     max_age_minutes: float | None = None,
     label: str | None = None,
+    include_content: bool = True,
 ) -> list[dict[str, Any]]:
     """Fetch unread articles from FreshRSS.
 
@@ -35,10 +36,15 @@ async def get_unread_articles(
             of now (e.g. 30 for "last 30 minutes", 1440 for "last 24h")
         label: Optional user label (tag) name to filter by, e.g. "news".
             Mutually exclusive with feed_id.
+        include_content: Include each article's summary text (default: True).
+            Pass False for a titles-and-metadata listing; labels, tags and links
+            still come back, so a caller can triage first and fetch the text of
+            the few articles it wants with get_article_content.
 
     Returns:
-        List of articles with id, title, summary, link, published, feed_title, feed_id,
-        and freshrss_url (link to the article in the FreshRSS web UI)
+        List of articles with id, title, summary (unless include_content is
+        False), link, published, feed_title, feed_id, labels, tags, starred, and
+        freshrss_url (link to the article in the FreshRSS web UI)
     """
     if feed_id and label:
         return [
@@ -63,7 +69,9 @@ async def get_unread_articles(
             limit=limit, feed_id=feed_id, since=since, label=label
         )
         return [
-            ArticleResponse.from_article(article, web_url).model_dump(mode="json")
+            ArticleResponse.from_article(
+                article, web_url, include_content=include_content
+            ).to_dict()
             for article in articles
         ]
     except ValueError as e:
@@ -89,7 +97,8 @@ async def get_article_content(
 
     Returns:
         Article with full content including id, title, content, link, published,
-        and freshrss_url (link to the article in the FreshRSS web UI)
+        labels, tags, starred, and freshrss_url (link to the article in the
+        FreshRSS web UI)
     """
     web_url = get_settings().freshrss_web_url
     try:
@@ -110,6 +119,9 @@ async def get_article_content(
                     "published": article.published_at.isoformat(),
                     "feed_title": article.origin.title if article.origin else "",
                     "feed_id": article.origin.stream_id if article.origin else "",
+                    "labels": article.labels,
+                    "tags": article.tags,
+                    "starred": article.starred,
                     "freshrss_url": article_web_url(article.id, web_url),
                 }
 

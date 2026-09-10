@@ -284,9 +284,26 @@ Fetch unread articles from FreshRSS.
   as it appears in FreshRSS - matching is case-sensitive. Mutually exclusive with
   `feed_id`: the FreshRSS API reads one stream per request, so passing both returns
   an `INVALID_ARGS` error.
+- `include_content` (optional, default: `true`): Include each article's summary
+  text. Set it to `false` to scan a large backlog cheaply - the summaries are by
+  far the largest part of the response, and everything else, labels and tags
+  included, still comes back. Fetch the text of the articles you picked with
+  `get_article_content` or `fetch_full_article` afterwards.
 
-**Returns:** List of articles with id, title, summary, link, published, feed_title,
-and `freshrss_url` (a link that opens the article in the FreshRSS web UI)
+**Returns:** List of articles with id, title, summary (omitted when
+`include_content` is `false`), link, published, feed_title, feed_id, `labels`,
+`tags`, `starred`, and `freshrss_url` (a link that opens the article in the
+FreshRSS web UI)
+
+Labels and tags always come back, on every article:
+
+| Field | What it holds |
+|---|---|
+| `labels` | Names of the FreshRSS labels on the article, taken from the API's `user/-/label/...` categories. The feed's folder is reported the same way, so it appears here too. |
+| `tags` | Tags the source feed itself put on the item (the RSS `<category>` entries), which FreshRSS passes through unprefixed. |
+| `starred` | Whether the article is a favourite in FreshRSS. |
+
+They cost no extra request: FreshRSS already sends them with every article.
 
 ### `get_article_content`
 Get full content of a specific article.
@@ -294,7 +311,8 @@ Get full content of a specific article.
 **Parameters:**
 - `article_id`: The article ID to fetch
 
-**Returns:** Article with full content, including `freshrss_url`
+**Returns:** Article with full content, including `labels`, `tags`, `starred`
+and `freshrss_url`
 
 ### `get_article_links`
 Build links that open articles in the FreshRSS web UI. Single articles already
@@ -352,7 +370,9 @@ to an already-read article would open an empty list.
 
 1. AI calls `get_unread_articles` to fetch unread article list
    - To build a digest of one label, pass `label` (e.g. `get_unread_articles(label="news")`)
-2. AI analyzes titles and summaries to determine importance
+   - For a large backlog, pass `include_content=false` first: titles, labels and
+     tags are enough to decide what is worth reading
+2. AI analyzes titles, labels/tags and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
 4. AI generates summary report for all articles
 5. After user reviews, AI calls `mark_as_read` to mark articles as read

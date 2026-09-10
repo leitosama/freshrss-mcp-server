@@ -86,11 +86,14 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         feed_id: str | None = None,
         max_age_minutes: float | None = None,
         label: str | None = None,
+        include_content: bool = True,
     ) -> list[dict[str, Any]]:
         """Fetch unread articles from FreshRSS.
 
         Use this tool to get a list of unread articles from your RSS subscriptions.
-        Each article includes title, summary, link, and publication date.
+        Every article comes back with its title, link, publication date, and the
+        labels and tags it carries in FreshRSS; the summary text is included
+        unless you turn it off with include_content.
 
         Args:
             limit: Maximum number of articles to return (default: 100)
@@ -104,10 +107,20 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
                 FreshRSS - matching is case-sensitive, and an unknown label simply
                 yields no articles. Mutually exclusive with feed_id: the FreshRSS
                 API reads one stream per request, so passing both is an error.
+            include_content: Whether to include each article's summary text
+                (default: True). Set it to False when you only need to see what
+                is there - scanning a large backlog, counting what arrived, or
+                picking a few articles to read - since the summaries dominate the
+                response size. Titles, labels, tags and links still come back, so
+                you can then call get_article_content or fetch_full_article for
+                just the articles you chose.
 
         Returns:
-            List of articles with id, title, summary, link, published, feed_title,
-            and freshrss_url (a link that opens the article in the FreshRSS web UI)
+            List of articles with id, title, summary (omitted when
+            include_content is False), link, published, feed_title, feed_id,
+            labels (FreshRSS labels, including the feed's folder), tags (tags the
+            source feed put on the article), starred, and freshrss_url (a link
+            that opens the article in the FreshRSS web UI)
         """
         client = await get_client()
         return await articles.get_unread_articles(
@@ -116,6 +129,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             feed_id=feed_id,
             max_age_minutes=max_age_minutes,
             label=label,
+            include_content=include_content,
         )
 
     @server.tool()
@@ -129,8 +143,9 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             article_id: The article ID to fetch (from get_unread_articles)
 
         Returns:
-            Article with full content including id, title, content, link, published,
-            and freshrss_url (a link that opens the article in the FreshRSS web UI)
+            Article with full content including id, title, content, link,
+            published, labels, tags, starred, and freshrss_url (a link that opens
+            the article in the FreshRSS web UI)
         """
         client = await get_client()
         return await articles.get_article_content(client, article_id=article_id)
