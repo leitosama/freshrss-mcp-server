@@ -4,6 +4,17 @@
 
 An MCP (Model Context Protocol) Server that connects to a self-hosted FreshRSS instance, enabling AI applications to fetch RSS subscription articles for intelligent summarization.
 
+## Scope
+
+`fetch_full_article` is static-only: it fetches HTML with httpx and extracts
+content with trafilatura, no JavaScript execution. Rendering JS-heavy pages
+(e.g. via a headless browser) is a deliberate non-goal for this server —
+that's a capability of the calling agent/harness, not something specific to
+FreshRSS. A caller that needs a rendered page should use its own
+browser-capable tool (e.g. `WebFetch`) against the article's original URL.
+This project previously shipped an optional Playwright-based dynamic-fetch
+path; it has been removed.
+
 ## Tech Stack
 
 - **Language**: Python 3.14
@@ -13,8 +24,7 @@ An MCP (Model Context Protocol) Server that connects to a self-hosted FreshRSS i
 - **MCP SDK**: mcp-python-sdk (mcp[cli] >= 1.25.0)
 - **HTTP Client**: httpx (async)
 - **Data Validation**: Pydantic + pydantic-settings
-- **Article Extraction**: trafilatura (static), Playwright (dynamic, optional)
-- **Browser Automation**: Playwright (optional `playwright` extra, disabled by default)
+- **Article Extraction**: trafilatura (static only, see Scope above)
 - **API**: FreshRSS Google Reader compatible API
 
 ## Development Guidelines
@@ -56,12 +66,10 @@ src/freshrss_mcp_server/
 └── tools/
     ├── __init__.py
     ├── articles.py        # Article-related tools
-    ├── fetcher.py         # Full article fetcher (static + optional dynamic)
-    └── browser.py         # Playwright browser wrapper (lazy import)
+    └── fetcher.py         # Full article fetcher (static, trafilatura)
 
-Dockerfile                 # Default image: no browser, dynamic fetch unavailable
-Dockerfile.playwright      # Optional variant: adds Chromium (not published)
-.github/workflows/         # CI: publish default image, build-validate playwright image
+Dockerfile                 # Published image
+.github/workflows/         # CI: lint/typecheck, publish image
 ```
 
 ## MCP Tools
@@ -70,7 +78,7 @@ Dockerfile.playwright      # Optional variant: adds Chromium (not published)
 |------|-------------|
 | `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`) |
 | `get_article_content` | Get single article content |
-| `fetch_full_article` | Scrape full content from original URL (supports `force_dynamic` for JS sites, requires optional Playwright extra) |
+| `fetch_full_article` | Scrape full content from original URL (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
 | `mark_as_read` | Mark articles as read |
 | `get_subscriptions` | Get subscription feeds list |
@@ -93,10 +101,6 @@ FRESHRSS_BASE_URL=       # Public URL of the FreshRSS web UI, used to build arti
 MCP_TRANSPORT=sse           # "stdio", "sse", or "streamable-http"
 MCP_HOST=::                 # HTTP server host (:: = all interfaces, IPv4+IPv6)
 MCP_PORT=8080               # HTTP server port (Railway auto-injects PORT)
-
-# Optional: Dynamic fetch / Playwright (defaults shown; requires the "playwright" extra)
-ENABLE_DYNAMIC_FETCH=false  # Enable Playwright for JS-rendered pages
-BROWSER_TIMEOUT=30          # Playwright page load timeout in seconds
 
 # Optional: Logging
 LOG_LEVEL=INFO              # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -124,10 +128,6 @@ By default, the server starts in SSE mode for remote deployment:
 ```bash
 # Install dependencies
 uv sync
-
-# Optional: dynamic (JS-rendered) fetch support
-uv sync --extra playwright
-uv run playwright install chromium
 
 # Run with defaults (SSE on 0.0.0.0:8080)
 uv run freshrss-mcp
@@ -195,8 +195,7 @@ curl http://localhost:8080/health
 # {
 #   "status": "healthy",
 #   "version": "0.1.0",
-#   "transport": "streamable-http",
-#   "dynamic_fetch": {"enabled": false, "playwright_installed": false}
+#   "transport": "streamable-http"
 # }
 ```
 
@@ -218,15 +217,6 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8080/mcp
 ```
 
 **Note**: This is a simple API key authentication, not OAuth 2.1 compliant. For internal/personal use only. The `/health` endpoint does not require authentication.
-
-### Graceful Shutdown
-
-The server handles SIGTERM and SIGINT signals gracefully:
-- Closes the Playwright browser instance, if one was started (no-op when dynamic fetch
-  is disabled or not installed)
-- Cleans up resources before exit
-
-This is important for container deployments and systemd services.
 
 ## Deployment
 
@@ -272,17 +262,9 @@ docker run -p 8080:8080 \
   freshrss-mcp
 ```
 
-The default `Dockerfile` (the only variant published to GHCR):
-- Has no browser installed — dynamic fetch unavailable, `ENABLE_DYNAMIC_FETCH=false`
+The `Dockerfile` (published to GHCR):
 - Health check configuration
 - Streamable HTTP as default transport
-
-For dynamic fetch, build `Dockerfile.playwright` yourself (not published — CI only
-builds it to validate it still works):
-
-```bash
-docker build -f Dockerfile.playwright -t freshrss-mcp:playwright .
-```
 
 ### Railway Deployment
 
@@ -310,13 +292,8 @@ FRESHRSS_API_PASSWORD=your_api_password
 
 # Recommended settings
 MCP_TRANSPORT=streamable-http
-ENABLE_DYNAMIC_FETCH=false
 API_KEY=your-secret-key  # For public access security
 ```
-
-Railway builds from `Dockerfile` (no browser) by default. For dynamic fetch, point
-Railway at `Dockerfile.playwright` instead (Settings > Build > Dockerfile Path) and set
-`ENABLE_DYNAMIC_FETCH=true`.
 
 > **Note**: Replace `freshrss` in the URL with your actual FreshRSS service name. Check your service name in Railway dashboard.
 
@@ -370,9 +347,6 @@ uv run ruff format --check .
 ```
 
 ### Type Checking (ty)
-
-Sync with the `playwright` extra first (`uv sync --extra playwright`), otherwise
-`tools/browser.py`'s lazy `playwright.async_api` import can't be resolved.
 
 ```bash
 # Type check the project
@@ -459,9 +433,8 @@ after a `docker` or `uv` ecosystem bump:
 
 | Thing | Where | Why it's invisible to Dependabot |
 |---|---|---|
-| `ghcr.io/astral-sh/uv:X.Y.Z` | `COPY --from=` in both Dockerfiles | Dependabot's `docker` ecosystem parses `FROM` lines only. `COPY --from` support is [dependabot-core#12988](https://github.com/dependabot/dependabot-core/pull/12988) — check if it's merged; delete this row once it ships. |
-| Python version coherence | `Dockerfile`, `Dockerfile.playwright`, `.python-version`, `pyproject.toml` (`requires-python`), `[tool.ruff] target-version` | A `python:*-slim` bump from Dependabot only touches the Docker tag. The other four spots drift unless updated together, by hand. |
-| Chromium version | `playwright install --with-deps chromium` in `Dockerfile.playwright` | Floats with whatever `playwright` package version is pinned; not a separate manifest entry. |
+| `ghcr.io/astral-sh/uv:X.Y.Z` | `COPY --from=` in `Dockerfile` | Dependabot's `docker` ecosystem parses `FROM` lines only. `COPY --from` support is [dependabot-core#12988](https://github.com/dependabot/dependabot-core/pull/12988) — check if it's merged; delete this row once it ships. |
+| Python version coherence | `Dockerfile`, `.python-version`, `pyproject.toml` (`requires-python`), `[tool.ruff] target-version` | A `python:*-slim` bump from Dependabot only touches the Docker tag. The other three spots drift unless updated together, by hand. |
 
 ### Handling `@claude` on Dependabot PRs
 
@@ -472,7 +445,7 @@ Dependabot PRs; you have to invoke it.
 
 **When to reach for it:**
 - A major-version bump that needs judgement.
-- The Python version bump specifically — it needs the five-file
+- The Python version bump specifically — it needs the four-file
   coordinated update above.
 - Red CI on a Dependabot PR that needs diagnosing.
 - "What actually changed transitively in this `uv.lock` diff?"
@@ -482,10 +455,9 @@ green, so there's usually nothing to do.
 
 Example prompts, left as comments on the PR:
 
-- `@claude this bumps python to 3.15-slim — update .python-version, requires-python and the ruff target-version to match, and confirm both Dockerfiles still build`
+- `@claude this bumps python to 3.15-slim — update .python-version, requires-python and the ruff target-version to match, and confirm the Dockerfile still builds`
 - `@claude summarize what changed transitively in uv.lock here and flag anything risky`
-- `@claude the playwright image build failed on this bump — diagnose and fix`
-- `@claude check what Dependabot can't see: the ghcr.io/astral-sh/uv COPY --from tag, and python version alignment across all 5 files`
+- `@claude check what Dependabot can't see: the ghcr.io/astral-sh/uv COPY --from tag, and python version alignment across all 4 files`
 
 **Two things to get right when Claude pushes to a `dependabot/*` branch:**
 
@@ -519,8 +491,9 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
      it is mutually exclusive with `feed_id` and matches the label name exactly
 2. AI analyzes titles and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
-   - If content appears incomplete (JS placeholders) and the tool description
-     indicates dynamic fetch is available, retry with `force_dynamic=True`
+   - If content still appears incomplete (JS placeholders), that's a static-fetch
+     limitation by design (see Scope) — retry with the agent's own browser-capable
+     tool against the article's original URL instead
 4. AI generates summary report for all articles, linking each one via the
    `freshrss_url` the article already carries
 5. For "open all of these in FreshRSS", AI calls `get_article_links` to get one

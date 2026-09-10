@@ -21,10 +21,10 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # Scans the directory, so this one entry covers both Dockerfile and
-  # Dockerfile.playwright. Does NOT see the `ghcr.io/astral-sh/uv` pin in
-  # their COPY --from lines (Dependabot's docker ecosystem only parses FROM
-  # lines) — see the "Dependency Maintenance" section in CLAUDE.md.
+  # Scans the directory, so this one entry covers Dockerfile. Does NOT see
+  # the `ghcr.io/astral-sh/uv` pin in its COPY --from line (Dependabot's
+  # docker ecosystem only parses FROM lines) — see the "Dependency
+  # Maintenance" section in CLAUDE.md.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

@@ -30,11 +30,8 @@ jobs:
       - name: Check lockfile is in sync
         run: uv lock --check
 
-      # The playwright extra is required here even though this job never
-      # touches a browser: ty needs it importable to resolve the lazy
-      # `playwright.async_api` import in tools/browser.py.
       - name: Sync dependencies
-        run: uv sync --locked --extra playwright
+        run: uv sync --locked
 
       - name: Ruff format check
         run: uv run ruff format --check .

@@ -11,4 +11,3 @@ __pycache__
 .github
 docker-compose.yml
 Dockerfile
-Dockerfile.playwright

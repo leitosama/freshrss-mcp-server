@@ -1,5 +1,3 @@
-# Default image: no browser, dynamic (JS-rendered) fetch is unavailable.
-# For dynamic fetch support, build Dockerfile.playwright instead.
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -23,7 +21,6 @@ COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
 # Default environment variables
-ENV ENABLE_DYNAMIC_FETCH=false
 ENV MCP_TRANSPORT=streamable-http
 ENV MCP_HOST=::
 ENV LOG_LEVEL=INFO

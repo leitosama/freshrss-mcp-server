@@ -46,6 +46,6 @@ properties of this project rather than oversights:
   intended for internal/personal use only — see the README and CLAUDE.md.
 - **`FRESHRSS_API_PASSWORD` is a FreshRSS *API* password**, generated in
   FreshRSS's own settings, not your FreshRSS account password.
-- **The published image (`ghcr.io/leitosama/freshrss-mcp-server`) is the
-  no-browser `Dockerfile` variant.** `Dockerfile.playwright` (dynamic
-  fetch / Chromium) is never published — build it yourself if you need it.
+- **`fetch_full_article` never executes JavaScript.** It fetches HTML with
+  httpx and extracts content with trafilatura only — no headless browser
+  runs inside this server.
