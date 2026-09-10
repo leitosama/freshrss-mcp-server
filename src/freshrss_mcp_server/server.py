@@ -159,6 +159,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         limit: int = 100,
         feed_id: str | None = None,
         max_age_minutes: float | None = None,
+        label: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch unread articles from FreshRSS.
 
@@ -171,6 +172,12 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             max_age_minutes: Only return articles published within this many minutes
                 of now. Use this for requests like "articles from the last 30
                 minutes" (max_age_minutes=30) or "last 24h" (max_age_minutes=1440).
+            label: Optional user label (tag) name to filter by, e.g. "news". Use
+                this for requests scoped to a label, such as building a digest of
+                everything tagged "news". Spell the label exactly as it appears in
+                FreshRSS - matching is case-sensitive, and an unknown label simply
+                yields no articles. Mutually exclusive with feed_id: the FreshRSS
+                API reads one stream per request, so passing both is an error.
 
         Returns:
             List of articles with id, title, summary, link, published, feed_title,
@@ -178,7 +185,11 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         """
         client = await get_client()
         return await articles.get_unread_articles(
-            client, limit=limit, feed_id=feed_id, max_age_minutes=max_age_minutes
+            client,
+            limit=limit,
+            feed_id=feed_id,
+            max_age_minutes=max_age_minutes,
+            label=label,
         )
 
     @server.tool()

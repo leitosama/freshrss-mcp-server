@@ -23,6 +23,7 @@ async def get_unread_articles(
     limit: int = 100,
     feed_id: str | None = None,
     max_age_minutes: float | None = None,
+    label: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch unread articles from FreshRSS.
 
@@ -32,11 +33,25 @@ async def get_unread_articles(
         feed_id: Optional feed ID to filter articles by specific subscription
         max_age_minutes: Only return articles published within this many minutes
             of now (e.g. 30 for "last 30 minutes", 1440 for "last 24h")
+        label: Optional user label (tag) name to filter by, e.g. "news".
+            Mutually exclusive with feed_id.
 
     Returns:
         List of articles with id, title, summary, link, published, feed_title, feed_id,
         and freshrss_url (link to the article in the FreshRSS web UI)
     """
+    if feed_id and label:
+        return [
+            {
+                "error": True,
+                "message": (
+                    "Pass either feed_id or label, not both - the FreshRSS API "
+                    "reads one stream per request."
+                ),
+                "code": "INVALID_ARGS",
+            }
+        ]
+
     since = (
         datetime.now(UTC) - timedelta(minutes=max_age_minutes)
         if max_age_minutes is not None
@@ -44,11 +59,16 @@ async def get_unread_articles(
     )
     web_url = get_settings().freshrss_web_url
     try:
-        articles = await client.get_unread_articles(limit=limit, feed_id=feed_id, since=since)
+        articles = await client.get_unread_articles(
+            limit=limit, feed_id=feed_id, since=since, label=label
+        )
         return [
             ArticleResponse.from_article(article, web_url).model_dump(mode="json")
             for article in articles
         ]
+    except ValueError as e:
+        logger.error("Invalid arguments for get_unread_articles: %s", e)
+        return [{"error": True, "message": str(e), "code": "INVALID_ARGS"}]
     except APIError as e:
         logger.error("Failed to get unread articles: %s", e)
         return [{"error": True, "message": str(e), "code": "API_ERROR"}]
