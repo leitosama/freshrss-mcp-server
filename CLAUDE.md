@@ -6,6 +6,21 @@ An MCP (Model Context Protocol) Server that connects to a self-hosted FreshRSS i
 
 ## Scope
 
+### Output format
+
+Every tool that returns article text returns **Markdown**, never HTML. Feed
+summaries are converted with `markdownify` in `content.py`; scraped pages come
+straight out of trafilatura's own `output_format="markdown"`, so they are never
+converted twice. Raw HTML is deliberately not offered: the consumer is an LLM,
+and tag noise dominated both the token count and the readability of results.
+
+`content.to_markdown()` never raises - a body that defeats the converter
+(tag soup nested a few hundred levels deep raises `RecursionError`) falls back
+to `content.strip_tags()`, a stdlib `HTMLParser` stripper, so one malformed
+article costs its own formatting rather than the listing it appears in.
+
+### Static fetching
+
 `fetch_full_article` is static-only: it fetches HTML with httpx and extracts
 content with trafilatura, no JavaScript execution. Rendering JS-heavy pages
 (e.g. via a headless browser) is a deliberate non-goal for this server —
@@ -25,6 +40,7 @@ path; it has been removed.
 - **HTTP Client**: httpx (async)
 - **Data Validation**: Pydantic + pydantic-settings
 - **Article Extraction**: trafilatura (static only, see Scope above)
+- **HTML to Markdown**: markdownify (feed summaries, see Scope above)
 - **API**: FreshRSS Google Reader compatible API
 
 ## Development Guidelines
@@ -58,6 +74,7 @@ src/freshrss_mcp_server/
 ├── __init__.py            # Package exports
 ├── server.py              # MCP Server entry point
 ├── config.py              # Settings management
+├── content.py             # HTML -> Markdown conversion, with tag-strip fallback
 ├── exceptions.py          # Custom exceptions
 ├── api/
 │   ├── __init__.py
@@ -76,9 +93,9 @@ Dockerfile                 # Published image
 
 | Tool | Description |
 |------|-------------|
-| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `labels`, `tags` and `starred` state; `include_content=False` drops the summary text |
-| `get_article_content` | Get single article content |
-| `fetch_full_article` | Scrape full content from original URL (static fetch only, see Scope above) |
+| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `labels`, `tags` and `starred` state; summaries come back as Markdown, and `include_content=False` drops the summary text |
+| `get_article_content` | Get single article content, as Markdown |
+| `fetch_full_article` | Scrape full content from original URL as Markdown (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
 | `mark_as_read` | Mark articles as read |
 | `get_subscriptions` | Get subscription feeds list |
@@ -507,6 +524,8 @@ No request parameter turns these on; they arrive with every article already.
      summaries dominate the response, while titles, `labels` and `tags` are
      usually enough to pick what is worth reading
 2. AI analyzes titles, labels/tags and summaries to determine importance
+   - Summaries are already Markdown, so links, lists and tables read directly;
+     no HTML unwrapping needed
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
    - If content still appears incomplete (JS placeholders), that's a static-fetch
      limitation by design (see Scope) — retry with the agent's own browser-capable

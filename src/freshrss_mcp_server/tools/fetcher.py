@@ -38,11 +38,16 @@ async def _fetch_static(url: str, timeout: int) -> str:
 def _extract_content(html: str) -> dict[str, Any] | None:
     """Extract article content using trafilatura.
 
+    trafilatura renders Markdown itself, so a scraped page never goes through
+    content.to_markdown(); asking for the "markdown" output format keeps the
+    headings, lists and emphasis that the older "txt" format flattened away, at
+    no extra cost.
+
     Args:
         html: Raw HTML content
 
     Returns:
-        Extracted content dict with content, title, author, date,
+        Extracted content dict with Markdown content, title, author, date,
         or None if extraction fails
     """
     extracted = trafilatura.extract(
@@ -50,7 +55,7 @@ def _extract_content(html: str) -> dict[str, Any] | None:
         include_links=True,
         include_images=False,
         include_tables=True,
-        output_format="txt",
+        output_format="markdown",
     )
 
     if not extracted:
@@ -60,7 +65,7 @@ def _extract_content(html: str) -> dict[str, Any] | None:
             include_links=True,
             include_images=False,
             include_tables=True,
-            output_format="txt",
+            output_format="markdown",
             favor_recall=True,
         )
 
@@ -96,8 +101,8 @@ async def fetch_full_article(
         timeout: Request timeout in seconds (default: 30)
 
     Returns:
-        Extracted article with content, title, author, date, url, and method.
-        The 'method' field is always 'static'.
+        Extracted article with content (Markdown), title, author, date, url,
+        and method. The 'method' field is always 'static'.
     """
     if not url:
         return {"error": True, "message": "URL is required", "code": "INVALID_INPUT"}
