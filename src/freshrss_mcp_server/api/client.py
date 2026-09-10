@@ -8,6 +8,10 @@ from urllib.parse import quote, urlencode
 import httpx
 
 from freshrss_mcp_server.api.models import (
+    LABEL_PREFIX,
+    STATE_READ,
+    STATE_READING_LIST,
+    STATE_STARRED,
     Article,
     StreamContents,
     Subscription,
@@ -18,13 +22,9 @@ from freshrss_mcp_server.exceptions import APIError, AuthenticationError
 
 logger = logging.getLogger(__name__)
 
-# Google Reader API state tags
-STATE_READ = "user/-/state/com.google/read"
-STATE_STARRED = "user/-/state/com.google/starred"
-STATE_READING_LIST = "user/-/state/com.google/reading-list"
-
-# Google Reader API prefix for FreshRSS user labels (tags)
-LABEL_PREFIX = "user/-/label/"
+# The Google Reader tag vocabulary (STATE_*, LABEL_PREFIX) is imported above
+# rather than defined here: models.py parses the same strings out of an entry's
+# categories, and one spelling of them is enough.
 
 
 def build_label_stream_id(label: str) -> str:

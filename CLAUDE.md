@@ -76,7 +76,7 @@ Dockerfile                 # Published image
 
 | Tool | Description |
 |------|-------------|
-| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`) |
+| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `labels`, `tags` and `starred` state; `include_content=False` drops the summary text |
 | `get_article_content` | Get single article content |
 | `fetch_full_article` | Scrape full content from original URL (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
@@ -484,12 +484,29 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
 | `/reader/api/0/unread-count` | Get unread counts |
 | `/reader/api/0/edit-tag` | Mark read/starred |
 
+### Article labels and tags
+
+`stream/contents` returns a `categories` list per article, built by
+`FreshRSS_Entry::toGReader()`. It mixes three things, which
+`Article.labels` / `Article.tags` / `Article.starred` split apart:
+
+- `user/-/label/<name>` - the feed's folder **and** every label on the entry,
+  reported identically, so `labels` cannot tell them apart without a second lookup
+- `user/-/state/...` - `com.google/read`, `com.google/starred`, and the
+  FreshRSS-specific `org.freshrss/main|important|hidden` feed priorities
+- a bare `<name>` - a tag the source feed put on the item itself
+
+No request parameter turns these on; they arrive with every article already.
+
 ## Usage Flow
 
 1. AI calls `get_unread_articles` to fetch unread article list
    - For a digest scoped to one user label, pass `label` (e.g. `label="news"`);
      it is mutually exclusive with `feed_id` and matches the label name exactly
-2. AI analyzes titles and summaries to determine importance
+   - For a large backlog, pass `include_content=False` for a first pass: the
+     summaries dominate the response, while titles, `labels` and `tags` are
+     usually enough to pick what is worth reading
+2. AI analyzes titles, labels/tags and summaries to determine importance
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
    - If content still appears incomplete (JS placeholders), that's a static-fetch
      limitation by design (see Scope) — retry with the agent's own browser-capable
