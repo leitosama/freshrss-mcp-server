@@ -19,6 +19,11 @@ and tag noise dominated both the token count and the readability of results.
 to `content.strip_tags()`, a stdlib `HTMLParser` stripper, so one malformed
 article costs its own formatting rather than the listing it appears in.
 
+### Tracking parameters
+
+`utm_*` parameters are stripped by `content.strip_utm()` from the article's own
+link and from every URL inside the text a tool returns.
+
 ### Static fetching
 
 `fetch_full_article` is static-only: it fetches HTML with httpx and extracts

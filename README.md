@@ -9,6 +9,8 @@ An MCP (Model Context Protocol) server that connects to a self-hosted FreshRSS i
   call, with title, link and publication date - read articles included
 - **Markdown Output**: Article text is converted from HTML to Markdown, so tool
   results stay readable and cheap for an LLM to consume
+- **Clean Links**: `utm_*` tracking parameters are stripped from article links
+  and from URLs inside article text
 - **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds), via static fetching
 - **Mark as Read**: Mark articles as read after processing
 - **Subscription Management**: View all subscriptions with unread counts

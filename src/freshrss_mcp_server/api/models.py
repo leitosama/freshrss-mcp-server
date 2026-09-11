@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
-from freshrss_mcp_server.content import to_markdown
+from freshrss_mcp_server.content import strip_utm, to_markdown
 from freshrss_mcp_server.links import GREADER_ITEM_PREFIX
 
 # =============================================================================
@@ -114,11 +114,10 @@ class Article(BaseModel):
     @computed_field
     @property
     def link(self) -> str | None:
-        """Get article URL from canonical or alternate links."""
-        if self.canonical:
-            return self.canonical[0].get("href")
-        if self.alternate:
-            return self.alternate[0].get("href")
+        """Get article URL from canonical or alternate links, minus UTM parameters."""
+        for links in (self.canonical, self.alternate):
+            if links and (href := links[0].get("href")):
+                return strip_utm(href)
         return None
 
     @computed_field
