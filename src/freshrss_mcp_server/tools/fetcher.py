@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 import trafilatura
 
+from freshrss_mcp_server.content import strip_utm
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +76,7 @@ def _extract_content(html: str) -> dict[str, Any] | None:
 
     metadata = trafilatura.extract_metadata(html)
 
-    result: dict[str, Any] = {"content": extracted}
+    result: dict[str, Any] = {"content": strip_utm(extracted)}
     if metadata:
         if metadata.title:
             result["title"] = metadata.title

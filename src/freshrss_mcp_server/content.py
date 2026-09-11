@@ -14,6 +14,7 @@ directly, so ``tools.fetcher`` asks it for that instead of converting twice.
 import logging
 import re
 from html.parser import HTMLParser
+from urllib.parse import urlsplit, urlunsplit
 
 from markdownify import markdownify
 
@@ -76,6 +77,11 @@ _ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 _TRAILING_SPACE = re.compile(r"[ \t]+$", re.MULTILINE)
 _EXTRA_BLANK_LINES = re.compile(r"\n{3,}")
 
+# A whole URL, so that utm_ stripping works on the query string alone and a
+# question mark in prose is left alone. The last character is restricted
+# separately to keep a sentence's closing punctuation out of the match.
+_URL = re.compile(r"https?://[^\s<>\"'\])]*[^\s<>\"'\]).,;:!?]")
+
 
 # =============================================================================
 # Public API
@@ -123,6 +129,21 @@ def to_markdown(html: str | None) -> str:
         return strip_tags(html)
 
     return _tidy(converted)
+
+
+def strip_utm(text: str) -> str:
+    """Drop ``utm_*`` tracking parameters from every URL in a string.
+
+    Feeds append these to the links they publish - both the article's own link
+    and the ones inside its body - where they carry nothing for a reader.
+
+    Args:
+        text: A bare URL, or any text with URLs in it
+
+    Returns:
+        The same text with every ``utm_*`` parameter removed
+    """
+    return _URL.sub(_drop_utm, text) if "utm_" in text else text
 
 
 def strip_tags(html: str | None) -> str:
@@ -187,8 +208,18 @@ class _TagStripper(HTMLParser):
         return "".join(self._chunks)
 
 
+def _drop_utm(match: re.Match[str]) -> str:
+    """Rebuild one matched URL without its ``utm_*`` query parameters."""
+    try:
+        parts = urlsplit(match[0])
+    except ValueError:  # a malformed netloc, e.g. an unclosed IPv6 bracket
+        return match[0]
+    kept = (p for p in parts.query.split("&") if not p.startswith("utm_"))
+    return urlunsplit(parts._replace(query="&".join(kept)))
+
+
 def _tidy(text: str) -> str:
-    """Normalise whitespace and strip non-printing characters.
+    """Normalise whitespace, strip non-printing characters and UTM parameters.
 
     Trailing spaces go even though two of them are Markdown's hard line break:
     the newline they decorate already conveys the break to a reader, and every
@@ -199,4 +230,4 @@ def _tidy(text: str) -> str:
     text = _ZERO_WIDTH.sub("", text)
     text = _TRAILING_SPACE.sub("", text)
     text = _EXTRA_BLANK_LINES.sub("\n\n", text)
-    return text.strip()
+    return strip_utm(text).strip()
