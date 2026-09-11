@@ -564,9 +564,8 @@ No request parameter turns these on; they arrive with every article already.
    - If content still appears incomplete (JS placeholders), that's a static-fetch
      limitation by design (see Scope) — retry with the agent's own browser-capable
      tool against the article's original URL instead
-5. AI generates summary report for all articles, linking each one via the
-   `freshrss_url` the article already carries
-6. For "open all of these in FreshRSS", AI calls `get_article_links` to get one
-   URL covering the whole batch
+5. AI generates summary report for all articles
+6. AI calls `get_article_links` to get URL(s) linking the articles back into
+   FreshRSS, for the report or for "open all of these in FreshRSS"
 7. After user reads, AI calls `mark_as_read` to mark as read, again passing every
    ID in a single call

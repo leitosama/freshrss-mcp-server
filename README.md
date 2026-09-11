@@ -296,8 +296,7 @@ Fetch unread articles from FreshRSS.
 
 **Returns:** List of articles with id, title, summary as Markdown (omitted when
 `include_content` is `false`), link, published, feed_title, feed_id, `labels`,
-`tags`, `starred`, and `freshrss_url` (a link that opens the article in the
-FreshRSS web UI)
+`tags`, and `starred`
 
 Labels and tags always come back, on every article:
 
@@ -325,7 +324,7 @@ unread list.
 
 | Field | What it holds |
 |---|---|
-| `articles` | The articles found, **in the order requested**, each in the same shape `get_unread_articles` returns: the text is in `summary`, as Markdown, alongside `labels`, `tags`, `starred` and `freshrss_url` |
+| `articles` | The articles found, **in the order requested**, each in the same shape `get_unread_articles` returns: the text is in `summary`, as Markdown, alongside `labels`, `tags` and `starred` |
 | `not_found` | IDs that parsed fine but have no article behind them in FreshRSS |
 | `invalid_ids` | IDs that could not be parsed at all |
 
@@ -333,9 +332,9 @@ A missing article is partial success, not a failed call: one dead ID never costs
 you the rest of the batch.
 
 ### `get_article_links`
-Build links that open articles in the FreshRSS web UI. Single articles already
-carry a `freshrss_url`, so this is mainly for batches: it returns one URL that
-opens every given article together.
+Build links that open articles in the FreshRSS web UI, for one article or a
+whole batch at once - it returns one URL that opens every given article
+together.
 
 **Parameters:**
 - `article_ids`: List of article IDs to build links for. Both the long

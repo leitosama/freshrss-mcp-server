@@ -44,8 +44,7 @@ async def get_unread_articles(
     Returns:
         List of articles with id, title, summary as Markdown (unless
         include_content is False), link, published, feed_title, feed_id, labels,
-        tags, starred, and freshrss_url (link to the article in the FreshRSS web
-        UI)
+        tags, and starred
     """
     if feed_id and label:
         return [
@@ -64,15 +63,12 @@ async def get_unread_articles(
         if max_age_minutes is not None
         else None
     )
-    web_url = get_settings().freshrss_web_url
     try:
         articles = await client.get_unread_articles(
             limit=limit, feed_id=feed_id, since=since, label=label
         )
         return [
-            ArticleResponse.from_article(
-                article, web_url, include_content=include_content
-            ).to_dict()
+            ArticleResponse.from_article(article, include_content=include_content).to_dict()
             for article in articles
         ]
     except ValueError as e:
@@ -102,8 +98,8 @@ async def get_article_content(
     Returns:
         articles, in the order they were asked for, each with id, title,
         summary as Markdown, link, published, feed_title, feed_id, labels,
-        tags, starred and freshrss_url; not_found for IDs no article exists
-        for; and invalid_ids for IDs that could not be parsed
+        tags and starred; not_found for IDs no article exists for; and
+        invalid_ids for IDs that could not be parsed
     """
     if not article_ids:
         return {"articles": [], "not_found": [], "invalid_ids": []}
@@ -130,7 +126,6 @@ async def get_article_content(
     if not requested:
         return {"articles": [], "not_found": [], "invalid_ids": invalid_ids}
 
-    web_url = get_settings().freshrss_web_url
     try:
         # Decimal IDs go on the wire: FreshRSS takes them as they are, and they
         # are the shortest of the three forms.
@@ -162,7 +157,7 @@ async def get_article_content(
             # batch, one dead ID must not cost the caller every other article.
             not_found.append(original_id)
         else:
-            articles.append(ArticleResponse.from_article(article, web_url).to_dict())
+            articles.append(ArticleResponse.from_article(article).to_dict())
 
     return {"articles": articles, "not_found": not_found, "invalid_ids": invalid_ids}
 
