@@ -5,7 +5,8 @@ An MCP (Model Context Protocol) server that connects to a self-hosted FreshRSS i
 ## Features
 
 - **Fetch Unread Articles**: Get all unread articles from your RSS subscriptions
-- **Article Content**: Access full article content with title, summary, link, and publication date
+- **Article Content**: Fetch the text of one or many articles by ID in a single
+  call, with title, link and publication date - read articles included
 - **Markdown Output**: Article text is converted from HTML to Markdown, so tool
   results stay readable and cheap for an LLM to consume
 - **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds), via static fetching
@@ -290,7 +291,8 @@ Fetch unread articles from FreshRSS.
   text. Set it to `false` to scan a large backlog cheaply - the summaries are by
   far the largest part of the response, and everything else, labels and tags
   included, still comes back. Fetch the text of the articles you picked with
-  `get_article_content` or `fetch_full_article` afterwards.
+  `get_article_content` afterwards, passing all their IDs in one call, or with
+  `fetch_full_article` for feeds that publish only an excerpt.
 
 **Returns:** List of articles with id, title, summary as Markdown (omitted when
 `include_content` is `false`), link, published, feed_title, feed_id, `labels`,
@@ -308,13 +310,27 @@ Labels and tags always come back, on every article:
 They cost no extra request: FreshRSS already sends them with every article.
 
 ### `get_article_content`
-Get full content of a specific article.
+Get the text of one or more articles by ID. The whole list goes to FreshRSS as a
+single request, so a digest of 30 articles costs one call rather than 30.
+
+Unlike `get_unread_articles` this addresses articles directly, so it also reaches
+articles that are already marked as read, and articles older than the current
+unread list.
 
 **Parameters:**
-- `article_id`: The article ID to fetch
+- `article_ids`: List of article IDs to fetch. Both the long
+  `tag:google.com,2005:reader/item/...` form and the plain numeric form work.
 
-**Returns:** Article with full content as Markdown, including `labels`, `tags`,
-`starred` and `freshrss_url`
+**Returns:**
+
+| Field | What it holds |
+|---|---|
+| `articles` | The articles found, **in the order requested**, each in the same shape `get_unread_articles` returns: the text is in `summary`, as Markdown, alongside `labels`, `tags`, `starred` and `freshrss_url` |
+| `not_found` | IDs that parsed fine but have no article behind them in FreshRSS |
+| `invalid_ids` | IDs that could not be parsed at all |
+
+A missing article is partial success, not a failed call: one dead ID never costs
+you the rest of the batch.
 
 ### `get_article_links`
 Build links that open articles in the FreshRSS web UI. Single articles already
@@ -330,10 +346,11 @@ article at once), `links` (one url per article), and `invalid_ids` for any IDs
 that could not be converted
 
 ### `mark_as_read`
-Mark articles as read.
+Mark articles as read. Batched as well: the whole list goes out as one request,
+so marking 50 articles costs one call.
 
 **Parameters:**
-- `article_ids`: List of article IDs to mark as read
+- `article_ids`: List of article IDs to mark as read, all in one call
 
 **Returns:** Operation result with success status
 
@@ -377,9 +394,12 @@ to an already-read article would open an empty list.
      tags are enough to decide what is worth reading
 2. AI analyzes titles, labels/tags and summaries to determine importance
    - Summaries arrive as Markdown, so links, lists and tables are readable as-is
-3. For incomplete summaries, AI calls `fetch_full_article` to get full content
-4. AI generates summary report for all articles
-5. After user reviews, AI calls `mark_as_read` to mark articles as read
+3. AI calls `get_article_content` once, with the IDs of every article it picked,
+   to read them in a single request
+4. For incomplete summaries, AI calls `fetch_full_article` to get full content
+5. AI generates summary report for all articles
+6. After user reviews, AI calls `mark_as_read` to mark articles as read, again
+   passing every ID in one call
 
 ## Development
 
