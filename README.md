@@ -14,6 +14,9 @@ An MCP (Model Context Protocol) server that connects to a self-hosted FreshRSS i
 - **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds), via static fetching
 - **Mark as Read**: Mark articles as read after processing
 - **Subscription Management**: View all subscriptions with unread counts
+- **Compact Feed Listing**: A Markdown (or JSON) table of id, title and category,
+  so feed names are resolved from one small lookup instead of being repeated
+  on every article
 
 ## Installation
 
@@ -355,6 +358,36 @@ so marking 50 articles costs one call.
 
 **Returns:** Operation result with success status
 
+### `get_feeds`
+List every feed as `id`, `title` and `category` - the lookup table for the
+`feed_id` that articles carry.
+
+Fetch it once and resolve feed names locally rather than asking for a feed title
+alongside every article: on a large batch the repeated titles cost far more than
+this whole listing. One row per feed, whether it has unread articles or not, in
+the order FreshRSS reports them, which is grouped by category.
+
+**Parameters:**
+- `format` (optional, default: `markdown`): `markdown` for a Markdown table, or
+  `json` for the same rows as a JSON array of objects. Markdown is the smaller
+  of the two - the column names are not repeated on every row.
+
+**Returns:** The listing as text. For example:
+
+```
+id | title | category
+--- | --- | ---
+25 | "Коммерсантъ". В мире | Коммерсантъ
+38 | "Коммерсантъ". Происшествия | Коммерсантъ
+19 | Хабр: Новости | tech_media
+```
+
+The `id` is the bare number. `get_unread_articles` accepts it as `feed_id` in
+that form or as `feed/25`; an article's own `feed_id` is still spelled
+`feed/25`, so match on the number.
+
+Use `get_subscriptions` instead when you need a feed's URL or unread count.
+
 ### `get_subscriptions`
 Get all RSS feed subscriptions with unread counts.
 
@@ -389,6 +422,8 @@ to an already-read article would open an empty list.
 
 ## Example Workflow
 
+0. For a session that will touch many articles, AI calls `get_feeds` once and keeps
+   the table, so each article only needs its `feed_id`
 1. AI calls `get_unread_articles` to fetch unread article list
    - To build a digest of one label, pass `label` (e.g. `get_unread_articles(label="news")`)
    - For a large backlog, pass `include_content=false` first: titles, labels and

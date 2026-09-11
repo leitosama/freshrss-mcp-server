@@ -22,6 +22,12 @@ from freshrss_mcp_server.links import GREADER_ITEM_PREFIX
 LABEL_PREFIX = "user/-/label/"
 SYSTEM_PREFIX = "user/-/"
 
+# FreshRSS addresses a feed as "feed/<numeric id>" -- both in subscription/list
+# and in every entry's origin.streamId (FreshRSS_Entry::toGReader). The number
+# alone identifies the feed, so get_feeds reports that and to_feed_id strips the
+# prefix; build_feed_stream_id in the client puts it back for a request.
+FEED_PREFIX = "feed/"
+
 STATE_READ = "user/-/state/com.google/read"
 STATE_STARRED = "user/-/state/com.google/starred"
 STATE_READING_LIST = "user/-/state/com.google/reading-list"
@@ -35,6 +41,17 @@ def _unique(values: Iterable[str]) -> list[str]:
     have to care.
     """
     return list(dict.fromkeys(values))
+
+
+def to_feed_id(stream_id: str) -> str:
+    """Reduce a feed stream ID to the bare number FreshRSS identifies it by.
+
+    ``"feed/25"`` becomes ``"25"``. Anything else is returned untouched: every
+    FreshRSS feed stream ID is numeric, so a non-numeric one is something this
+    code has not seen and is safer passed through than mangled.
+    """
+    bare = stream_id.removeprefix(FEED_PREFIX)
+    return bare if bare.isdigit() else stream_id
 
 
 # =============================================================================
@@ -254,6 +271,31 @@ class ArticleResponse(BaseModel):
         """
         exclude = None if self.summary is not None else {"summary"}
         return self.model_dump(mode="json", exclude=exclude)
+
+
+class FeedResponse(BaseModel):
+    """One row of the feed listing: the least that still identifies a feed.
+
+    Deliberately narrower than :class:`SubscriptionResponse`. This is the lookup
+    table a caller keeps beside a batch of articles to resolve their ``feed_id``,
+    so it carries no URL and no unread count - both would be paid for on every
+    row of every listing to answer a question the caller did not ask.
+    """
+
+    id: str
+    title: str
+    category: str | None = None
+
+    @classmethod
+    def from_subscription(cls, subscription: Subscription) -> FeedResponse:
+        """Create from API Subscription model."""
+        return cls(
+            id=to_feed_id(subscription.id),
+            title=subscription.title,
+            # A feed sits in exactly one FreshRSS category, but the API models
+            # it as a list; take the first and ignore any surprise extras.
+            category=subscription.categories[0].label if subscription.categories else None,
+        )
 
 
 class SubscriptionResponse(BaseModel):

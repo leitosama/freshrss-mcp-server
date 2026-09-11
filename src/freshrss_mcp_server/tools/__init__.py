@@ -3,6 +3,7 @@
 from freshrss_mcp_server.tools.articles import (
     get_article_content,
     get_article_links,
+    get_feeds,
     get_subscriptions,
     get_unread_articles,
     mark_as_read,
@@ -13,6 +14,7 @@ __all__ = [
     "fetch_full_article",
     "get_article_content",
     "get_article_links",
+    "get_feeds",
     "get_subscriptions",
     "get_unread_articles",
     "mark_as_read",

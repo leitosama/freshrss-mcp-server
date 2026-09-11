@@ -1,12 +1,19 @@
 """Article-related MCP tools for FreshRSS."""
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freshrss_mcp_server.api.client import FreshRSSClient
-from freshrss_mcp_server.api.models import Article, ArticleResponse, SubscriptionResponse
+from freshrss_mcp_server.api.models import (
+    Article,
+    ArticleResponse,
+    FeedResponse,
+    SubscriptionResponse,
+)
 from freshrss_mcp_server.config import get_settings
+from freshrss_mcp_server.content import to_markdown_table
 from freshrss_mcp_server.exceptions import APIError, FreshRSSError
 from freshrss_mcp_server.links import (
     ArticleIdError,
@@ -16,6 +23,14 @@ from freshrss_mcp_server.links import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Column headings of the get_feeds table. They match FeedResponse's field names,
+# which is what the JSON form emits, so a caller sees the same three keys either
+# way round.
+FEED_COLUMNS = ("id", "title", "category")
+
+# The formats get_feeds renders, in the order the error message lists them.
+FEED_FORMATS = ("markdown", "json")
 
 
 async def get_unread_articles(
@@ -275,3 +290,70 @@ async def get_subscriptions(
     except FreshRSSError as e:
         logger.error("FreshRSS error: %s", e)
         return [{"error": True, "message": str(e), "code": "FRESHRSS_ERROR"}]
+
+
+async def get_feeds(
+    client: FreshRSSClient,
+    format: str = "markdown",
+) -> str:
+    """List every feed as id, title and category.
+
+    The lookup table for article ``feed_id`` values, kept deliberately small:
+    one row per feed, no URLs and no unread counts. Returns text rather than a
+    structured payload so the rows are paid for once.
+
+    Args:
+        client: FreshRSS API client
+        format: "markdown" for a Markdown table (default), or "json" for the
+            same rows as a JSON array of objects
+
+    Returns:
+        The feed listing in the requested format, or an error payload in that
+        same format if the feeds could not be fetched
+    """
+    if format not in FEED_FORMATS:
+        return _feed_error(
+            f"Unknown format {format!r}: expected one of {', '.join(FEED_FORMATS)}",
+            "INVALID_ARGS",
+            # The requested format is the thing that is wrong, so the error
+            # cannot be rendered in it; plain text is what is left.
+            "markdown",
+        )
+
+    try:
+        subscriptions = await client.get_subscriptions()
+    except APIError as e:
+        logger.error("Failed to get feeds: %s", e)
+        return _feed_error(str(e), "API_ERROR", format)
+    except FreshRSSError as e:
+        logger.error("FreshRSS error: %s", e)
+        return _feed_error(str(e), "FRESHRSS_ERROR", format)
+
+    # FreshRSS returns subscriptions grouped by category already, which is also
+    # the most readable order for the table, so it is passed through as-is.
+    feeds = [FeedResponse.from_subscription(sub) for sub in subscriptions]
+
+    if format == "json":
+        return _to_json([feed.model_dump(mode="json") for feed in feeds])
+
+    return to_markdown_table(
+        FEED_COLUMNS,
+        [(feed.id, feed.title, feed.category or "") for feed in feeds],
+    )
+
+
+def _to_json(payload: Any) -> str:
+    """Serialize a get_feeds payload as compact JSON.
+
+    ``ensure_ascii`` is off on purpose: escaping would render a Cyrillic feed
+    title as six ASCII characters per letter, which is the opposite of what this
+    tool is for.
+    """
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _feed_error(message: str, code: str, format: str) -> str:
+    """Render a get_feeds failure in the format the caller asked for."""
+    if format == "json":
+        return _to_json({"error": True, "message": message, "code": code})
+    return f"Error ({code}): {message}"

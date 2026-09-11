@@ -13,6 +13,7 @@ directly, so ``tools.fetcher`` asks it for that instead of converting twice.
 
 import logging
 import re
+from collections.abc import Iterable, Sequence
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, urlunsplit
 
@@ -38,6 +39,13 @@ _STRIP_TAGS = ["img", "picture", "source", "figure", "iframe", "video", "audio"]
 # publish exactly that - and running it through the converter would only risk
 # reflowing it for nothing.
 _MARKUP_HINT = re.compile(r"<[a-zA-Z/!]|&[#a-zA-Z0-9]{1,32};")
+
+# Everything a table cell cannot hold literally. A pipe would open a new column
+# and any vertical whitespace would end the row, so both are neutralised rather
+# than allowed to break the table around them: feed titles are arbitrary text
+# from a third party, and one title with a pipe in it must not cost the caller
+# every other row.
+_CELL_BREAKERS = re.compile(r"[|\r\n\t]")
 
 # Block-level tags, used by the fallback stripper to keep sentences from
 # running together once their tags are gone.
@@ -169,6 +177,39 @@ def strip_tags(html: str | None) -> str:
     return _tidy(stripper.text())
 
 
+def to_markdown_table(headers: Sequence[str], rows: Iterable[Sequence[str]]) -> str:
+    """Render rows as a GitHub-flavoured Markdown table.
+
+    Written for tool results an LLM reads, so the layout is the cheap one: no
+    column padding, and no leading or trailing pipe on a row. Both are optional
+    in GitHub-flavoured Markdown and cost tokens on every line of a listing
+    that exists to be small.
+
+    Args:
+        headers: Column headings, which also fix the column count
+        rows: One sequence of cells per row. A row shorter than ``headers`` is
+            padded with empty cells and a longer one is truncated, so a ragged
+            row cannot shift the columns underneath it.
+
+    Returns:
+        The table, without a trailing newline. Empty if there are no headers.
+    """
+    if not headers:
+        return ""
+
+    width = len(headers)
+    lines = [
+        " | ".join(_cell(header) for header in headers),
+        " | ".join(["---"] * width),
+    ]
+    for row in rows:
+        cells = [_cell(cell) for cell in row[:width]]
+        cells.extend([""] * (width - len(cells)))
+        lines.append(" | ".join(cells))
+
+    return "\n".join(lines)
+
+
 # =============================================================================
 # Internals
 # =============================================================================
@@ -231,3 +272,8 @@ def _tidy(text: str) -> str:
     text = _TRAILING_SPACE.sub("", text)
     text = _EXTRA_BLANK_LINES.sub("\n\n", text)
     return strip_utm(text).strip()
+
+
+def _cell(value: str) -> str:
+    """Flatten one value into something a Markdown table row can hold."""
+    return _CELL_BREAKERS.sub(" ", value).strip()

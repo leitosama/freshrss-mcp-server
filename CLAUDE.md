@@ -14,6 +14,11 @@ straight out of trafilatura's own `output_format="markdown"`, so they are never
 converted twice. Raw HTML is deliberately not offered: the consumer is an LLM,
 and tag noise dominated both the token count and the readability of results.
 
+Listings are Markdown too, not just article bodies: `get_feeds` renders its
+rows with `content.to_markdown_table()`. A table is the cheapest shape that
+still labels its columns - roughly 40% of the bytes of the equivalent JSON on a
+real 35-feed list, because the keys are not repeated on every row.
+
 `content.to_markdown()` never raises - a body that defeats the converter
 (tag soup nested a few hundred levels deep raises `RecursionError`) falls back
 to `content.strip_tags()`, a stdlib `HTMLParser` stripper, so one malformed
@@ -104,7 +109,8 @@ Dockerfile                 # Published image
 | `fetch_full_article` | Scrape full content from original URL as Markdown (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
 | `mark_as_read` | Mark articles as read. Batched: the whole list goes out as one request |
-| `get_subscriptions` | Get subscription feeds list |
+| `get_feeds` | Feed lookup table: `id`, `title` and `category` per feed, as a Markdown table (default) or JSON. The companion to the `feed_id` articles carry - fetch it once and resolve feed names locally instead of paying for them per article |
+| `get_subscriptions` | Get subscription feeds list, with each feed's URL and unread count. Use `get_feeds` instead when only the id/title/category mapping is needed |
 
 ## Environment Variables
 
@@ -548,8 +554,41 @@ scanning a stream. Its quirks are worth knowing before touching that code path:
 
 No request parameter turns these on; they arrive with every article already.
 
+### Feed IDs
+
+FreshRSS addresses a feed as `feed/<numeric id>`, in `subscription/list` and in
+every entry's `origin.streamId` alike. Two helpers bridge the two spellings:
+
+- `models.to_feed_id()` strips the prefix, so `get_feeds` reports the bare `25`
+- `client.build_feed_stream_id()` puts it back, so `get_unread_articles` takes
+  `feed_id` as either `25` or `feed/25`
+
+A non-numeric stream ID is passed through untouched by both, which keeps a
+deliberately built stream (a state, a label) from being mangled into `feed/...`.
+
+Note that an article's own `feed_id` is still the full `feed/25`: the two forms
+are interchangeable as a filter, but they are not string-equal, so anything
+matching articles against the `get_feeds` table should compare on the number.
+
+## Tool output: structured vs unstructured
+
+FastMCP decides this from the return annotation, and the default is expensive:
+a tool returning `str` has its value wrapped in a `{"result": ...}` model and
+sent **twice**, once as text content and once as `structuredContent`. Measured on
+the real subscription list, `get_subscriptions` puts 11.4 KB on the wire for
+5.9 KB of JSON.
+
+`get_feeds` is therefore registered with `@server.tool(structured_output=False)`,
+which drops the output schema and sends one text block. Any future tool whose
+point is a small response wants the same treatment; tools whose callers parse
+the payload should keep the structured form.
+
 ## Usage Flow
 
+0. For a session that will touch many articles, AI calls `get_feeds` once and
+   keeps the table: every article then only needs its `feed_id`, and the feed's
+   name and category are resolved from the table rather than repeated on each
+   article
 1. AI calls `get_unread_articles` to fetch unread article list
    - For a digest scoped to one user label, pass `label` (e.g. `label="news"`);
      it is mutually exclusive with `feed_id` and matches the label name exactly
