@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 import httpx
 
 from freshrss_mcp_server.api.models import (
+    FEED_PREFIX,
     LABEL_PREFIX,
     STATE_READ,
     STATE_READING_LIST,
@@ -53,6 +54,35 @@ def build_label_stream_id(label: str) -> str:
     if name.startswith(LABEL_PREFIX):
         return name
     return f"{LABEL_PREFIX}{name}"
+
+
+def build_feed_stream_id(feed_id: str) -> str:
+    """Build a Google Reader stream ID for a FreshRSS feed.
+
+    Accepts both forms the server itself hands out: the bare number ``get_feeds``
+    reports and the ``"feed/25"`` the subscription list and an article's
+    ``feed_id`` carry. Either can therefore be pasted straight back in as a
+    filter, which is the whole point of the id column in the feed listing.
+
+    Args:
+        feed_id: Feed ID as a bare number (e.g. "25") or a stream ID
+            (e.g. "feed/25")
+
+    Returns:
+        Stream ID of the form "feed/<id>".
+
+    Raises:
+        ValueError: If the feed ID is empty or whitespace only.
+    """
+    name = feed_id.strip()
+    if not name:
+        raise ValueError("Feed ID must not be empty")
+    if name.startswith(FEED_PREFIX):
+        return name
+    # Only a bare number is a feed ID missing its prefix. Anything else is some
+    # other kind of stream the caller built deliberately (a state, a label), and
+    # prefixing it would turn a working request into a broken one.
+    return f"{FEED_PREFIX}{name}" if name.isdigit() else name
 
 
 class FreshRSSClient:
@@ -352,7 +382,7 @@ class FreshRSSClient:
         if label:
             stream_id = build_label_stream_id(label)
         elif feed_id:
-            stream_id = feed_id
+            stream_id = build_feed_stream_id(feed_id)
         else:
             stream_id = STATE_READING_LIST
         exclude = STATE_READ

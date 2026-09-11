@@ -210,6 +210,38 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         client = await get_client()
         return await articles.mark_as_read(client, article_ids=article_ids)
 
+    # structured_output=False: FastMCP would otherwise wrap a str return in a
+    # {"result": ...} model and send the listing twice, once as text and once as
+    # structured content. A tool whose whole purpose is a smaller response can
+    # not afford to pay for its rows twice.
+    @server.tool(structured_output=False)
+    async def get_feeds(format: str = "markdown") -> str:
+        """List every feed as id, title and category.
+
+        This is the lookup table for the feed_id that articles carry. Fetch it
+        once per conversation, then resolve feed_id locally instead of asking
+        for feed titles alongside every article - on a large batch the repeated
+        titles cost far more than this whole listing does.
+
+        One row per feed, whether it has unread articles or not, in the order
+        FreshRSS reports them, which is grouped by category. The id is the bare
+        number ("25"), and get_unread_articles takes it as feed_id in that form
+        or as "feed/25".
+
+        Use get_subscriptions instead when you actually need a feed's URL or its
+        unread count.
+
+        Args:
+            format: "markdown" (default) for a Markdown table with id, title and
+                category columns, or "json" for the same rows as a JSON array of
+                objects. Prefer markdown - it is the smaller of the two.
+
+        Returns:
+            The feed listing as text, in the requested format
+        """
+        client = await get_client()
+        return await articles.get_feeds(client, format=format)
+
     @server.tool()
     async def get_subscriptions() -> list[dict[str, Any]]:
         """Get all RSS feed subscriptions with unread counts.
