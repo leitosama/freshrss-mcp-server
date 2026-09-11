@@ -122,8 +122,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
             List of articles with id, title, summary as Markdown (omitted when
             include_content is False), link, published, feed_title, feed_id,
             labels (FreshRSS labels, including the feed's folder), tags (tags the
-            source feed put on the article), starred, and freshrss_url (a link
-            that opens the article in the FreshRSS web UI)
+            source feed put on the article), and starred
         """
         client = await get_client()
         return await articles.get_unread_articles(
@@ -163,10 +162,9 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
 
         Returns:
             articles (each with id, title, summary as Markdown, link,
-            published, feed_title, feed_id, labels, tags, starred and
-            freshrss_url, in the order requested), not_found for IDs no
-            article exists for, and invalid_ids for IDs that could not be
-            parsed
+            published, feed_title, feed_id, labels, tags and starred, in the
+            order requested), not_found for IDs no article exists for, and
+            invalid_ids for IDs that could not be parsed
         """
         client = await get_client()
         return await articles.get_article_content(client, article_ids=article_ids)
@@ -177,9 +175,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
 
         Use this to give the user one clickable link that opens a whole batch of
         articles together in FreshRSS - for example every article you just
-        summarized. Single articles already carry a freshrss_url field from
-        get_unread_articles and get_article_content, so reach for this tool
-        mainly for batches.
+        summarized.
 
         Article IDs come from get_unread_articles. Both the long
         "tag:google.com,2005:reader/item/..." form and the plain numeric form

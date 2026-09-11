@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field, computed_field
 
 from freshrss_mcp_server.content import to_markdown
-from freshrss_mcp_server.links import ArticleIdError, build_article_url, to_entry_id
+from freshrss_mcp_server.links import GREADER_ITEM_PREFIX
 
 # =============================================================================
 # Google Reader Tag Vocabulary
@@ -196,18 +196,6 @@ class UnreadCountResponse(BaseModel):
 # =============================================================================
 
 
-def article_web_url(article_id: str, web_url: str) -> str | None:
-    """Build the FreshRSS web UI link for one article.
-
-    Returns None rather than raising if the ID cannot be converted, so a single
-    malformed ID never fails a whole article listing.
-    """
-    try:
-        return build_article_url(web_url, [to_entry_id(article_id)])
-    except ArticleIdError:
-        return None
-
-
 class ArticleResponse(BaseModel):
     """Simplified article for MCP tool response."""
 
@@ -221,13 +209,11 @@ class ArticleResponse(BaseModel):
     labels: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     starred: bool = False
-    freshrss_url: str | None = None
 
     @classmethod
     def from_article(
         cls,
         article: Article,
-        web_url: str,
         *,
         include_content: bool = True,
     ) -> ArticleResponse:
@@ -235,7 +221,6 @@ class ArticleResponse(BaseModel):
 
         Args:
             article: Article from the Google Reader API
-            web_url: Root URL of the FreshRSS web UI, used to build freshrss_url
             include_content: Keep the article's summary text. Pass False to list
                 articles without their bodies, which is much cheaper for a
                 caller that only needs to triage titles first.
@@ -246,7 +231,10 @@ class ArticleResponse(BaseModel):
             else None
         )
         return cls(
-            id=article.id,
+            # Drop the "tag:google.com,2005:reader/item/" prefix: it's dead
+            # weight on every article, and get_article_content/get_article_links
+            # still accept the bare form.
+            id=article.id.removeprefix(GREADER_ITEM_PREFIX),
             title=article.title,
             summary=summary,
             link=article.link,
@@ -256,7 +244,6 @@ class ArticleResponse(BaseModel):
             labels=article.labels,
             tags=article.tags,
             starred=article.starred,
-            freshrss_url=article_web_url(article.id, web_url),
         )
 
     def to_dict(self) -> dict[str, Any]:
