@@ -299,9 +299,25 @@ Fetch unread articles from FreshRSS.
   `get_article_content` afterwards, passing all their IDs in one call, or with
   `fetch_full_article` for feeds that publish only an excerpt.
 
-**Returns:** List of articles with id, title, summary as Markdown (omitted when
-`include_content` is `false`), link, published, feed_title, feed_id, `labels`,
-`tags`, and `starred`
+**Returns:** The listing as text, in one of two shapes.
+
+With `include_content=false`, a Markdown table with the columns `id`, `title`,
+`link`, `published`, `feed_id`, `labels`, `tags` and `starred`:
+
+```
+id | title | link | published | feed_id | labels | tags | starred
+--- | --- | --- | --- | --- | --- | --- | ---
+00065b2d06c813f8 | Два человека пострадали при ракетном ударе | https://www.kommersant.ru/doc/8941373 | 2026-09-11T03:44:29Z | 38 | Коммерсантъ, news | Происшествия | false
+```
+
+With the summaries included it is a JSON array of objects with those same fields
+plus `summary`, the article text as Markdown. A table row ends at its first
+newline, so an article body cannot go in a cell - which is why the table is
+offered only for the summary-less listing.
+
+`feed_id` is the bare number, exactly as `get_feeds` reports it, and the feed's
+title is deliberately not repeated on every article: call `get_feeds` once and
+resolve the number against it.
 
 Labels and tags always come back, on every article:
 
@@ -329,7 +345,7 @@ unread list.
 
 | Field | What it holds |
 |---|---|
-| `articles` | The articles found, **in the order requested**, each in the same shape `get_unread_articles` returns: the text is in `summary`, as Markdown, alongside `labels`, `tags` and `starred` |
+| `articles` | The articles found, **in the order requested**, each carrying the same fields `get_unread_articles` reports: the text is in `summary`, as Markdown, alongside `feed_id`, `labels`, `tags` and `starred` |
 | `not_found` | IDs that parsed fine but have no article behind them in FreshRSS |
 | `invalid_ids` | IDs that could not be parsed at all |
 
@@ -382,9 +398,9 @@ id | title | category
 19 | Хабр: Новости | tech_media
 ```
 
-The `id` is the bare number. `get_unread_articles` accepts it as `feed_id` in
-that form or as `feed/25`; an article's own `feed_id` is still spelled
-`feed/25`, so match on the number.
+The `id` is the bare number, which is exactly what every article's own `feed_id`
+holds, so the two match directly with no unwrapping. `get_unread_articles` also
+accepts it as `feed/25` when filtering.
 
 Use `get_subscriptions` instead when you need a feed's URL or unread count.
 
@@ -423,11 +439,12 @@ to an already-read article would open an empty list.
 ## Example Workflow
 
 0. For a session that will touch many articles, AI calls `get_feeds` once and keeps
-   the table, so each article only needs its `feed_id`
+   the table, so each article only needs its bare `feed_id` to resolve a feed name
 1. AI calls `get_unread_articles` to fetch unread article list
    - To build a digest of one label, pass `label` (e.g. `get_unread_articles(label="news")`)
    - For a large backlog, pass `include_content=false` first: titles, labels and
-     tags are enough to decide what is worth reading
+     tags are enough to decide what is worth reading, and that pass comes back as
+     a compact Markdown table
 2. AI analyzes titles, labels/tags and summaries to determine importance
    - Summaries arrive as Markdown, so links, lists and tables are readable as-is
 3. AI calls `get_article_content` once, with the IDs of every article it picked,

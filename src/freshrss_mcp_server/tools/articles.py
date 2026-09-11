@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -29,8 +30,16 @@ logger = logging.getLogger(__name__)
 # way round.
 FEED_COLUMNS = ("id", "title", "category")
 
-# The formats get_feeds renders, in the order the error message lists them.
-FEED_FORMATS = ("markdown", "json")
+# Column headings of the get_unread_articles table, likewise ArticleResponse's
+# own field names. "summary" is absent by design: a table row ends at the first
+# newline, so an article body cannot live in a cell, which is why the table is
+# only offered for a listing that left the summaries out.
+ARTICLE_COLUMNS = ("id", "title", "link", "published", "feed_id", "labels", "tags", "starred")
+
+# The formats a listing renders, in the order the error message lists them.
+# Only get_feeds validates against this - get_unread_articles derives its format
+# from include_content and so cannot be given an unknown one.
+LISTING_FORMATS = ("markdown", "json")
 
 
 async def get_unread_articles(
@@ -40,7 +49,7 @@ async def get_unread_articles(
     max_age_minutes: float | None = None,
     label: str | None = None,
     include_content: bool = True,
-) -> list[dict[str, Any]]:
+) -> str:
     """Fetch unread articles from FreshRSS.
 
     Args:
@@ -57,21 +66,23 @@ async def get_unread_articles(
             the few articles it wants with a single get_article_content call.
 
     Returns:
-        List of articles with id, title, summary as Markdown (unless
-        include_content is False), link, published, feed_title, feed_id, labels,
-        tags, and starred
+        The listing as text: a Markdown table of ARTICLE_COLUMNS when
+        include_content is False, otherwise a JSON array of objects carrying the
+        same fields plus the summary
     """
+    # A table row ends at its first newline, so a summary cannot go in a cell:
+    # the listing is a table exactly when the summaries were left out, and JSON
+    # when they were not. Errors follow the same form, so a caller parsing one
+    # is not handed the other.
+    format = "json" if include_content else "markdown"
+
     if feed_id and label:
-        return [
-            {
-                "error": True,
-                "message": (
-                    "Pass either feed_id or label, not both - the FreshRSS API "
-                    "reads one stream per request."
-                ),
-                "code": "INVALID_ARGS",
-            }
-        ]
+        return _render_error(
+            "Pass either feed_id or label, not both - the FreshRSS API reads one "
+            "stream per request.",
+            "INVALID_ARGS",
+            format,
+        )
 
     since = (
         datetime.now(UTC) - timedelta(minutes=max_age_minutes)
@@ -82,19 +93,24 @@ async def get_unread_articles(
         articles = await client.get_unread_articles(
             limit=limit, feed_id=feed_id, since=since, label=label
         )
-        return [
-            ArticleResponse.from_article(article, include_content=include_content).to_dict()
-            for article in articles
-        ]
     except ValueError as e:
         logger.error("Invalid arguments for get_unread_articles: %s", e)
-        return [{"error": True, "message": str(e), "code": "INVALID_ARGS"}]
+        return _render_error(str(e), "INVALID_ARGS", format)
     except APIError as e:
         logger.error("Failed to get unread articles: %s", e)
-        return [{"error": True, "message": str(e), "code": "API_ERROR"}]
+        return _render_error(str(e), "API_ERROR", format)
     except FreshRSSError as e:
         logger.error("FreshRSS error: %s", e)
-        return [{"error": True, "message": str(e), "code": "FRESHRSS_ERROR"}]
+        return _render_error(str(e), "FRESHRSS_ERROR", format)
+
+    return _render_listing(
+        format,
+        ARTICLE_COLUMNS,
+        [
+            ArticleResponse.from_article(article, include_content=include_content).to_dict()
+            for article in articles
+        ],
+    )
 
 
 async def get_article_content(
@@ -112,9 +128,9 @@ async def get_article_content(
 
     Returns:
         articles, in the order they were asked for, each with id, title,
-        summary as Markdown, link, published, feed_title, feed_id, labels,
-        tags and starred; not_found for IDs no article exists for; and
-        invalid_ids for IDs that could not be parsed
+        summary as Markdown, link, published, feed_id, labels, tags and
+        starred; not_found for IDs no article exists for; and invalid_ids
+        for IDs that could not be parsed
     """
     if not article_ids:
         return {"articles": [], "not_found": [], "invalid_ids": []}
@@ -311,9 +327,9 @@ async def get_feeds(
         The feed listing in the requested format, or an error payload in that
         same format if the feeds could not be fetched
     """
-    if format not in FEED_FORMATS:
-        return _feed_error(
-            f"Unknown format {format!r}: expected one of {', '.join(FEED_FORMATS)}",
+    if format not in LISTING_FORMATS:
+        return _render_error(
+            f"Unknown format {format!r}: expected one of {', '.join(LISTING_FORMATS)}",
             "INVALID_ARGS",
             # The requested format is the thing that is wrong, so the error
             # cannot be rendered in it; plain text is what is left.
@@ -324,36 +340,45 @@ async def get_feeds(
         subscriptions = await client.get_subscriptions()
     except APIError as e:
         logger.error("Failed to get feeds: %s", e)
-        return _feed_error(str(e), "API_ERROR", format)
+        return _render_error(str(e), "API_ERROR", format)
     except FreshRSSError as e:
         logger.error("FreshRSS error: %s", e)
-        return _feed_error(str(e), "FRESHRSS_ERROR", format)
+        return _render_error(str(e), "FRESHRSS_ERROR", format)
 
     # FreshRSS returns subscriptions grouped by category already, which is also
     # the most readable order for the table, so it is passed through as-is.
-    feeds = [FeedResponse.from_subscription(sub) for sub in subscriptions]
-
-    if format == "json":
-        return _to_json([feed.model_dump(mode="json") for feed in feeds])
-
-    return to_markdown_table(
+    return _render_listing(
+        format,
         FEED_COLUMNS,
-        [(feed.id, feed.title, feed.category or "") for feed in feeds],
+        [FeedResponse.from_subscription(sub).model_dump(mode="json") for sub in subscriptions],
     )
 
 
+def _render_listing(format: str, columns: Sequence[str], rows: list[dict[str, Any]]) -> str:
+    """Render a listing of already-serialized rows as a table or as JSON.
+
+    Shared by ``get_feeds`` and ``get_unread_articles``, which differ only in
+    their columns. Rows come in as ``model_dump(mode="json")`` output so that
+    both forms report identical values - the table simply selects ``columns``
+    from each row and drops the keys, which is where its saving comes from.
+    """
+    if format == "json":
+        return _to_json(rows)
+    return to_markdown_table(columns, [[row.get(column) for column in columns] for row in rows])
+
+
 def _to_json(payload: Any) -> str:
-    """Serialize a get_feeds payload as compact JSON.
+    """Serialize a listing payload as compact JSON.
 
     ``ensure_ascii`` is off on purpose: escaping would render a Cyrillic feed
-    title as six ASCII characters per letter, which is the opposite of what this
-    tool is for.
+    title as six ASCII characters per letter, which is the opposite of what
+    these tools are for.
     """
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def _feed_error(message: str, code: str, format: str) -> str:
-    """Render a get_feeds failure in the format the caller asked for."""
+def _render_error(message: str, code: str, format: str) -> str:
+    """Render a listing failure in the format the caller asked for."""
     if format == "json":
         return _to_json({"error": True, "message": message, "code": code})
     return f"Error ({code}): {message}"

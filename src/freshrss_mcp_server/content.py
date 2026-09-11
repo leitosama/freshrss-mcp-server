@@ -177,7 +177,7 @@ def strip_tags(html: str | None) -> str:
     return _tidy(stripper.text())
 
 
-def to_markdown_table(headers: Sequence[str], rows: Iterable[Sequence[str]]) -> str:
+def to_markdown_table(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> str:
     """Render rows as a GitHub-flavoured Markdown table.
 
     Written for tool results an LLM reads, so the layout is the cheap one: no
@@ -187,9 +187,11 @@ def to_markdown_table(headers: Sequence[str], rows: Iterable[Sequence[str]]) -> 
 
     Args:
         headers: Column headings, which also fix the column count
-        rows: One sequence of cells per row. A row shorter than ``headers`` is
-            padded with empty cells and a longer one is truncated, so a ragged
-            row cannot shift the columns underneath it.
+        rows: One sequence of cells per row, each cell whatever
+            ``model_dump(mode="json")`` produced for its column - see
+            :func:`_cell` for how the non-string ones are flattened. A row
+            shorter than ``headers`` is padded with empty cells and a longer one
+            is truncated, so a ragged row cannot shift the columns underneath it.
 
     Returns:
         The table, without a trailing newline. Empty if there are no headers.
@@ -274,6 +276,18 @@ def _tidy(text: str) -> str:
     return strip_utm(text).strip()
 
 
-def _cell(value: str) -> str:
-    """Flatten one value into something a Markdown table row can hold."""
-    return _CELL_BREAKERS.sub(" ", value).strip()
+def _cell(value: object) -> str:
+    """Flatten one value into something a Markdown table row can hold.
+
+    Takes a column straight out of ``model_dump(mode="json")``, so a listing
+    reports the same values whichever form it is rendered in: a list of labels
+    joins into one cell, a bool keeps its JSON spelling rather than Python's
+    capitalised one, and a field that is absent or None is simply blank.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list | tuple):
+        return ", ".join(_cell(item) for item in value)
+    return _CELL_BREAKERS.sub(" ", str(value)).strip()

@@ -14,10 +14,21 @@ straight out of trafilatura's own `output_format="markdown"`, so they are never
 converted twice. Raw HTML is deliberately not offered: the consumer is an LLM,
 and tag noise dominated both the token count and the readability of results.
 
-Listings are Markdown too, not just article bodies: `get_feeds` renders its
-rows with `content.to_markdown_table()`. A table is the cheapest shape that
-still labels its columns - roughly 40% of the bytes of the equivalent JSON on a
-real 35-feed list, because the keys are not repeated on every row.
+Listings are Markdown too, not just article bodies: `get_feeds` and
+`get_unread_articles` render their rows with `content.to_markdown_table()`, both
+through the one `tools/articles._render_listing()` that differs between them
+only in its column tuple. A table is the cheapest shape that still labels its
+columns - roughly 40% of the bytes of the equivalent JSON on a real 35-feed
+list, because the keys are not repeated on every row.
+
+A table row ends at its first newline, so an article body cannot live in a cell.
+`get_unread_articles` therefore renders a table exactly when
+`include_content=False` and falls back to a JSON array when the summaries are
+included, and its errors follow whichever of the two the call was going to get.
+Cells are fed straight from `model_dump(mode="json")`, so `_cell()` is what
+flattens a list of labels into `Коммерсантъ, news`, a bool into `false`, and a
+missing field into a blank - the table and the JSON form never disagree about a
+value.
 
 `content.to_markdown()` never raises - a body that defeats the converter
 (tag soup nested a few hundred levels deep raises `RecursionError`) falls back
@@ -104,7 +115,7 @@ Dockerfile                 # Published image
 
 | Tool | Description |
 |------|-------------|
-| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `labels`, `tags` and `starred` state; summaries come back as Markdown, and `include_content=False` drops the summary text |
+| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `feed_id`, `labels`, `tags` and `starred` state. `include_content=False` drops the summary text and renders the listing as a Markdown table; with summaries (Markdown) it is a JSON array instead |
 | `get_article_content` | Get the text of one **or many** articles by ID, as Markdown, in a single request. Reaches already-read articles, which `get_unread_articles` cannot. Returns `articles` (in the order asked for), `not_found` and `invalid_ids` |
 | `fetch_full_article` | Scrape full content from original URL as Markdown (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
@@ -566,9 +577,12 @@ every entry's `origin.streamId` alike. Two helpers bridge the two spellings:
 A non-numeric stream ID is passed through untouched by both, which keeps a
 deliberately built stream (a state, a label) from being mangled into `feed/...`.
 
-Note that an article's own `feed_id` is still the full `feed/25`: the two forms
-are interchangeable as a filter, but they are not string-equal, so anything
-matching articles against the `get_feeds` table should compare on the number.
+An article's own `feed_id` is reported in the bare form too:
+`ArticleResponse.from_article()` runs `origin.streamId` through `to_feed_id()`,
+so a row from `get_unread_articles` and a row from `get_feeds` are string-equal
+on the number and match without any unwrapping. The feed's *title* is
+deliberately not on the article - `get_feeds` is where that comes from, fetched
+once instead of repeated per article.
 
 ## Tool output: structured vs unstructured
 
@@ -578,24 +592,28 @@ sent **twice**, once as text content and once as `structuredContent`. Measured o
 the real subscription list, `get_subscriptions` puts 11.4 KB on the wire for
 5.9 KB of JSON.
 
-`get_feeds` is therefore registered with `@server.tool(structured_output=False)`,
-which drops the output schema and sends one text block. Any future tool whose
+`get_feeds` and `get_unread_articles` are therefore registered with
+`@server.tool(structured_output=False)`, which drops the output schema and sends
+one text block - for `get_unread_articles` that holds either the Markdown table
+or the JSON array, whichever `include_content` selected. Any future tool whose
 point is a small response wants the same treatment; tools whose callers parse
-the payload should keep the structured form.
+the payload should keep the structured form, which is why `get_article_content`
+still does.
 
 ## Usage Flow
 
 0. For a session that will touch many articles, AI calls `get_feeds` once and
-   keeps the table: every article then only needs its `feed_id`, and the feed's
-   name and category are resolved from the table rather than repeated on each
-   article
+   keeps the table: articles carry only the bare `feed_id`, and the feed's name
+   and category are resolved from that table - by matching the number directly -
+   rather than repeated on each article
 1. AI calls `get_unread_articles` to fetch unread article list
    - For a digest scoped to one user label, pass `label` (e.g. `label="news"`);
      it is mutually exclusive with `feed_id` and matches the label name exactly
    - For a large backlog, pass `include_content=False` for a first pass: the
      summaries dominate the response, while titles, `labels` and `tags` are
      usually enough to pick what is worth reading, and `get_article_content`
-     then fetches the text of the ones picked
+     then fetches the text of the ones picked. That pass comes back as a
+     Markdown table, one row per article; with summaries it is a JSON array
 2. AI analyzes titles, labels/tags and summaries to determine importance
    - Summaries are already Markdown, so links, lists and tables read directly;
      no HTML unwrapping needed
