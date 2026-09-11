@@ -220,7 +220,10 @@ class ArticleResponse(BaseModel):
     summary: str | None = None  # Markdown, converted from the feed's HTML
     link: str | None
     published: datetime
-    feed_title: str
+    # The bare number, as get_feeds reports it, so the two line up on sight
+    # instead of one side carrying a "feed/" the other does not. The feed's
+    # title is deliberately absent: repeating it on every article of a batch
+    # costs far more than the whole get_feeds table it can be resolved from.
     feed_id: str
     labels: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
@@ -255,8 +258,7 @@ class ArticleResponse(BaseModel):
             summary=summary,
             link=article.link,
             published=article.published_at,
-            feed_title=article.origin.title if article.origin else "",
-            feed_id=article.origin.stream_id if article.origin else "",
+            feed_id=to_feed_id(article.origin.stream_id) if article.origin else "",
             labels=article.labels,
             tags=article.tags,
             starred=article.starred,

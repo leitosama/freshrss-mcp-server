@@ -80,23 +80,37 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
     """
     server = FastMCP("freshrss", host=host, port=port)
 
-    # Register all tools
-    @server.tool()
+    # Register all tools.
+
+    # structured_output=False: FastMCP would otherwise wrap a str return in a
+    # {"result": ...} model and send the listing twice, once as text and once as
+    # structured content. A tool whose whole purpose is a smaller response can
+    # not afford to pay for its rows twice.
+    @server.tool(structured_output=False)
     async def get_unread_articles(
         limit: int = 100,
         feed_id: str | None = None,
         max_age_minutes: float | None = None,
         label: str | None = None,
         include_content: bool = True,
-    ) -> list[dict[str, Any]]:
+    ) -> str:
         """Fetch unread articles from FreshRSS.
 
         Use this tool to get a list of unread articles from your RSS subscriptions.
-        Every article comes back with its title, link, publication date, and the
-        labels and tags it carries in FreshRSS; the summary text is included
-        unless you turn it off with include_content. Summaries are converted
-        from the feed's HTML to Markdown, so links, lists and tables survive as
-        readable text.
+        Every article comes back with its title, link, publication date, feed_id,
+        and the labels and tags it carries in FreshRSS; the summary text is
+        included unless you turn it off with include_content. Summaries are
+        converted from the feed's HTML to Markdown, so links, lists and tables
+        survive as readable text.
+
+        The shape follows include_content. With include_content=False you get a
+        Markdown table, one row per article, which is the cheapest way to see a
+        backlog; with the summaries included you get a JSON array instead, since
+        an article body cannot fit in a table row.
+
+        Articles carry feed_id but not the feed's title - call get_feeds once and
+        resolve the number locally, instead of paying for a repeated title on
+        every article.
 
         Args:
             limit: Maximum number of articles to return (default: 100)
@@ -119,10 +133,12 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
                 get_article_content call, passing all their IDs at once.
 
         Returns:
-            List of articles with id, title, summary as Markdown (omitted when
-            include_content is False), link, published, feed_title, feed_id,
-            labels (FreshRSS labels, including the feed's folder), tags (tags the
-            source feed put on the article), and starred
+            The listing as text. With include_content=False, a Markdown table
+            with the columns id, title, link, published, feed_id, labels
+            (FreshRSS labels, including the feed's folder), tags (tags the source
+            feed put on the article) and starred. Otherwise a JSON array of
+            objects with those same fields plus summary, the article text as
+            Markdown.
         """
         client = await get_client()
         return await articles.get_unread_articles(
@@ -149,10 +165,10 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         directly, so it also reaches articles that are already marked as read,
         and articles older than the current unread list.
 
-        The text comes back as Markdown in the 'summary' field, the same shape
-        get_unread_articles returns, and in the order you asked for. Unknown
-        IDs cost you nothing: they come back listed in not_found while every
-        other article still arrives. For feeds that publish only a short
+        The text comes back as Markdown in the 'summary' field, carrying the
+        same fields get_unread_articles reports, and in the order you asked for.
+        Unknown IDs cost you nothing: they come back listed in not_found while
+        every other article still arrives. For feeds that publish only a short
         excerpt, follow up with fetch_full_article on the article's link.
 
         Args:
@@ -162,8 +178,8 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
 
         Returns:
             articles (each with id, title, summary as Markdown, link,
-            published, feed_title, feed_id, labels, tags and starred, in the
-            order requested), not_found for IDs no article exists for, and
+            published, feed_id, labels, tags and starred, in the order
+            requested), not_found for IDs no article exists for, and
             invalid_ids for IDs that could not be parsed
         """
         client = await get_client()
@@ -210,10 +226,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         client = await get_client()
         return await articles.mark_as_read(client, article_ids=article_ids)
 
-    # structured_output=False: FastMCP would otherwise wrap a str return in a
-    # {"result": ...} model and send the listing twice, once as text and once as
-    # structured content. A tool whose whole purpose is a smaller response can
-    # not afford to pay for its rows twice.
+    # structured_output=False for the same reason as get_unread_articles above.
     @server.tool(structured_output=False)
     async def get_feeds(format: str = "markdown") -> str:
         """List every feed as id, title and category.
@@ -225,8 +238,9 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
 
         One row per feed, whether it has unread articles or not, in the order
         FreshRSS reports them, which is grouped by category. The id is the bare
-        number ("25"), and get_unread_articles takes it as feed_id in that form
-        or as "feed/25".
+        number ("25"), which is exactly what every article's own feed_id holds,
+        so the two match directly; get_unread_articles also takes it as
+        "feed/25".
 
         Use get_subscriptions instead when you actually need a feed's URL or its
         unread count.
