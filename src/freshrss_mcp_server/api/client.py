@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 # rather than defined here: models.py parses the same strings out of an entry's
 # categories, and one spelling of them is enough.
 
+# How many article IDs go into one stream/items/contents request. FreshRSS reads
+# the POST body with a 1 MiB cap, but that is not the binding limit -- at ~62
+# bytes per URL-encoded ID it would take some 16,000 IDs to reach it. The
+# response is, since every article arrives with its body. 100 matches
+# links.MAX_IDS_PER_URL and the page size get_unread_articles already uses.
+MAX_IDS_PER_REQUEST = 100
+
 
 def build_label_stream_id(label: str) -> str:
     """Build a Google Reader stream ID for a FreshRSS user label.
@@ -426,6 +433,68 @@ class FreshRSSClient:
         data = response.json()
         # Response format: {"itemRefs": [{"id": "..."}, ...]}
         return [item["id"] for item in data.get("itemRefs", [])]
+
+    async def get_articles_by_ids(self, article_ids: list[str]) -> list[Article]:
+        """Get articles by ID, whatever their read state.
+
+        Unlike :meth:`get_stream_contents` this addresses entries directly, so
+        it also reaches articles that are already read, or older than any
+        reasonable page of the reading list.
+
+        FreshRSS normalizes the IDs itself, so the long
+        ``tag:google.com,2005:reader/item/<hex>`` form, the bare hex form and
+        the decimal form all work and are passed through verbatim.
+
+        Args:
+            article_ids: Article IDs, in any form FreshRSS accepts
+
+        Returns:
+            Articles for the IDs that exist, in the server's own date order --
+            the endpoint ignores the order they were asked for. IDs with no
+            article behind them are dropped silently; the endpoint reports no
+            error for them, so a caller that needs to know pairs the result
+            back up against its request itself.
+
+        Raises:
+            APIError: If request fails.
+        """
+        if not article_ids:
+            # Required, not just a saving: the route is gated on the presence of
+            # an "i" parameter, and without one the request falls through to
+            # FreshRSS's badRequest() handler.
+            return []
+
+        await self._ensure_authenticated()
+        client = self._get_client()
+        url = f"{self.api_url}/reader/api/0/stream/items/contents"
+
+        articles: list[Article] = []
+
+        for start in range(0, len(article_ids), MAX_IDS_PER_REQUEST):
+            chunk = article_ids[start : start + MAX_IDS_PER_REQUEST]
+
+            # Repeated 'i' fields, same shape as _edit_tag: FreshRSS re-parses
+            # the raw body itself because PHP collapses duplicate keys, so the
+            # duplicates have to survive encoding. No action token here -- that
+            # check guards only the endpoints that write.
+            encoded_data = urlencode([("i", article_id) for article_id in chunk])
+
+            try:
+                response = await client.post(
+                    url,
+                    content=encoded_data,
+                    headers=self._get_headers(),
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise APIError(
+                    f"Failed to get articles by ID: {e.response.status_code}",
+                    e.response.status_code,
+                ) from e
+
+            articles.extend(StreamContents.model_validate(response.json()).items)
+
+        return articles
 
     # =========================================================================
     # State Management

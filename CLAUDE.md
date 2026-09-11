@@ -63,7 +63,8 @@ When modifying HTTP-related code (middleware, routes, etc.):
 ## Core Features
 
 1. **Fetch Unread Articles**: Get all unread articles from FreshRSS
-2. **Article Content**: Return title, summary/content, original link, publish time, feed info
+2. **Article Content**: Return title, content, original link, publish time, feed info
+   for one or many articles per call, read or unread
 3. **Full Article Scraping**: Scrape full content for summary-only RSS feeds
 4. **Mark as Read**: Mark articles as read
 
@@ -94,10 +95,10 @@ Dockerfile                 # Published image
 | Tool | Description |
 |------|-------------|
 | `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `labels`, `tags` and `starred` state; summaries come back as Markdown, and `include_content=False` drops the summary text |
-| `get_article_content` | Get single article content, as Markdown |
+| `get_article_content` | Get the text of one **or many** articles by ID, as Markdown, in a single request. Reaches already-read articles, which `get_unread_articles` cannot. Returns `articles` (in the order asked for), `not_found` and `invalid_ids` |
 | `fetch_full_article` | Scrape full content from original URL as Markdown (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
-| `mark_as_read` | Mark articles as read |
+| `mark_as_read` | Mark articles as read. Batched: the whole list goes out as one request |
 | `get_subscriptions` | Get subscription feeds list |
 
 ## Environment Variables
@@ -497,9 +498,36 @@ API Source: https://github.com/FreshRSS/FreshRSS/blob/edge/p/api/greader.php
 |----------|---------|
 | `/accounts/ClientLogin` | Login, get Auth token |
 | `/reader/api/0/subscription/list` | Get subscription list |
-| `/reader/api/0/stream/contents/...` | Get article content |
+| `/reader/api/0/stream/contents/...` | Get a stream's articles |
+| `/reader/api/0/stream/items/contents` | Get articles by ID, in one batch |
 | `/reader/api/0/unread-count` | Get unread counts |
 | `/reader/api/0/edit-tag` | Mark read/starred |
+
+### Fetching articles by ID
+
+`get_article_content` reads `/reader/api/0/stream/items/contents` rather than
+scanning a stream. Its quirks are worth knowing before touching that code path:
+
+- **POST only.** The route is gated on the presence of an `i` parameter, so a
+  GET, or a POST with no IDs, falls through to `badRequest()`. The empty-list
+  short circuit in `get_articles_by_ids` is required, not an optimization.
+- **No action token.** `checkToken()` guards only the endpoints that write
+  (`edit-tag`, `rename-tag`, `disable-tag`, `mark-all-as-read`), so this one
+  needs the auth header alone - skipping `_ensure_action_token()` saves a full
+  round trip per call.
+- **Repeated `i=` fields**, form-encoded. FreshRSS re-parses the raw body itself
+  because PHP collapses duplicate keys, which is why the body is built with
+  `urlencode` on a list of pairs, exactly as `_edit_tag` does.
+- **All three ID forms work** - long `tag:...`, bare hex, and decimal - since
+  FreshRSS normalizes with `hex2dec(basename(...))` unless the value is all
+  digits with no leading zero. The same three forms `links.to_entry_id` handles.
+- **Items come back in date order**, not the order they were asked for, and
+  **unknown IDs are dropped silently** with no error. Both are why the tool layer
+  pairs the response back up against the request by entry ID.
+- The response carries **no `continuation`**: the ID list is the page. It is
+  otherwise serialized exactly like `stream/contents`, so `StreamContents` parses
+  both.
+- The body is read with a 1 MiB cap, hence the `MAX_IDS_PER_REQUEST` chunking.
 
 ### Article labels and tags
 
@@ -522,16 +550,23 @@ No request parameter turns these on; they arrive with every article already.
      it is mutually exclusive with `feed_id` and matches the label name exactly
    - For a large backlog, pass `include_content=False` for a first pass: the
      summaries dominate the response, while titles, `labels` and `tags` are
-     usually enough to pick what is worth reading
+     usually enough to pick what is worth reading, and `get_article_content`
+     then fetches the text of the ones picked
 2. AI analyzes titles, labels/tags and summaries to determine importance
    - Summaries are already Markdown, so links, lists and tables read directly;
      no HTML unwrapping needed
-3. For incomplete summaries, AI calls `fetch_full_article` to get full content
+3. AI calls `get_article_content` **once, with every chosen ID**, to read those
+   articles: the batch costs one request, comes back in the order asked for, and
+   unlike `get_unread_articles` reaches articles already marked as read
+   - IDs nothing exists for come back under `not_found` while every other
+     article still arrives, so one dead ID never costs the batch
+4. For incomplete summaries, AI calls `fetch_full_article` to get full content
    - If content still appears incomplete (JS placeholders), that's a static-fetch
      limitation by design (see Scope) — retry with the agent's own browser-capable
      tool against the article's original URL instead
-4. AI generates summary report for all articles, linking each one via the
+5. AI generates summary report for all articles, linking each one via the
    `freshrss_url` the article already carries
-5. For "open all of these in FreshRSS", AI calls `get_article_links` to get one
+6. For "open all of these in FreshRSS", AI calls `get_article_links` to get one
    URL covering the whole batch
-6. After user reads, AI calls `mark_as_read` to mark as read
+7. After user reads, AI calls `mark_as_read` to mark as read, again passing every
+   ID in a single call

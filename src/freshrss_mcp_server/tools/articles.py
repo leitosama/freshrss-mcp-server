@@ -5,9 +5,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from freshrss_mcp_server.api.client import FreshRSSClient
-from freshrss_mcp_server.api.models import ArticleResponse, SubscriptionResponse, article_web_url
+from freshrss_mcp_server.api.models import Article, ArticleResponse, SubscriptionResponse
 from freshrss_mcp_server.config import get_settings
-from freshrss_mcp_server.content import to_markdown
 from freshrss_mcp_server.exceptions import APIError, FreshRSSError
 from freshrss_mcp_server.links import (
     ArticleIdError,
@@ -40,7 +39,7 @@ async def get_unread_articles(
         include_content: Include each article's summary text (default: True).
             Pass False for a titles-and-metadata listing; labels, tags and links
             still come back, so a caller can triage first and fetch the text of
-            the few articles it wants with get_article_content.
+            the few articles it wants with a single get_article_content call.
 
     Returns:
         List of articles with id, title, summary as Markdown (unless
@@ -89,52 +88,83 @@ async def get_unread_articles(
 
 async def get_article_content(
     client: FreshRSSClient,
-    article_id: str,
+    article_ids: list[str],
 ) -> dict[str, Any]:
-    """Get full content of a specific article.
+    """Get the full text of one or more articles by ID.
+
+    Reaches any article still in FreshRSS, read or not, and fetches the whole
+    batch in a single request.
 
     Args:
         client: FreshRSS API client
-        article_id: The article ID to fetch
+        article_ids: Article IDs to fetch, in any form to_entry_id accepts
 
     Returns:
-        Article with full content including id, title, content as Markdown,
-        link, published, labels, tags, starred, and freshrss_url (link to the
-        article in the FreshRSS web UI)
+        articles, in the order they were asked for, each with id, title,
+        summary as Markdown, link, published, feed_title, feed_id, labels,
+        tags, starred and freshrss_url; not_found for IDs no article exists
+        for; and invalid_ids for IDs that could not be parsed
     """
+    if not article_ids:
+        return {"articles": [], "not_found": [], "invalid_ids": []}
+
+    # Normalize to decimal entry IDs: the caller may use any of the three ID
+    # forms while the API always answers in the long "tag:..." one, so the two
+    # sides only line up once both are converted. The dict also collapses
+    # duplicate requests while keeping first-seen order, which is the order the
+    # response is built around.
+    requested: dict[str, str] = {}  # entry ID -> the ID as the caller spelled it
+    invalid_ids: list[str] = []
+
+    for article_id in article_ids:
+        try:
+            entry_id = to_entry_id(article_id)
+        except ArticleIdError:
+            # Report unusable IDs alongside the ones that worked, so a single
+            # bad ID does not cost the caller every other article.
+            logger.warning("Skipping unparseable article ID: %s", article_id)
+            invalid_ids.append(article_id)
+            continue
+        requested.setdefault(entry_id, article_id)
+
+    if not requested:
+        return {"articles": [], "not_found": [], "invalid_ids": invalid_ids}
+
     web_url = get_settings().freshrss_web_url
     try:
-        # Get the article by fetching stream contents with the specific article
-        # The article_id in Google Reader API is like "tag:google.com,2005:reader/item/..."
-        stream = await client.get_stream_contents(
-            stream_id="user/-/state/com.google/reading-list",
-            count=1000,  # Fetch more to find the article
-        )
-
-        for article in stream.items:
-            if article.id == article_id:
-                return {
-                    "id": article.id,
-                    "title": article.title,
-                    "content": to_markdown(article.summary.content) if article.summary else "",
-                    "link": article.link,
-                    "published": article.published_at.isoformat(),
-                    "feed_title": article.origin.title if article.origin else "",
-                    "feed_id": article.origin.stream_id if article.origin else "",
-                    "labels": article.labels,
-                    "tags": article.tags,
-                    "starred": article.starred,
-                    "freshrss_url": article_web_url(article.id, web_url),
-                }
-
-        return {"error": True, "message": f"Article not found: {article_id}", "code": "NOT_FOUND"}
-
+        # Decimal IDs go on the wire: FreshRSS takes them as they are, and they
+        # are the shortest of the three forms.
+        fetched = await client.get_articles_by_ids(list(requested))
     except APIError as e:
         logger.error("Failed to get article content: %s", e)
         return {"error": True, "message": str(e), "code": "API_ERROR"}
     except FreshRSSError as e:
         logger.error("FreshRSS error: %s", e)
         return {"error": True, "message": str(e), "code": "FRESHRSS_ERROR"}
+
+    # The endpoint answers in date order and drops IDs it does not know, so pair
+    # the two lists up by entry ID rather than by position.
+    by_entry_id: dict[str, Article] = {}
+    for article in fetched:
+        try:
+            by_entry_id[to_entry_id(article.id)] = article
+        except ArticleIdError:
+            # FreshRSS builds these itself, so this should not happen.
+            logger.warning("API returned an unparseable article ID: %s", article.id)
+
+    articles: list[dict[str, Any]] = []
+    not_found: list[str] = []
+
+    for entry_id, original_id in requested.items():
+        article = by_entry_id.get(entry_id)
+        if article is None:
+            # A missing article is partial success, not a failed call: in a
+            # batch, one dead ID must not cost the caller every other article.
+            not_found.append(original_id)
+        else:
+            articles.append(ArticleResponse.from_article(article, web_url).to_dict())
+
+    return {"articles": articles, "not_found": not_found, "invalid_ids": invalid_ids}
 
 
 def get_article_links(article_ids: list[str]) -> dict[str, Any]:

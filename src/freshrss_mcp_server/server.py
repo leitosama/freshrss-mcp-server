@@ -114,9 +114,9 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
                 (default: True). Set it to False when you only need to see what
                 is there - scanning a large backlog, counting what arrived, or
                 picking a few articles to read - since the summaries dominate the
-                response size. Titles, labels, tags and links still come back, so
-                you can then call get_article_content or fetch_full_article for
-                just the articles you chose.
+                response size. Titles, labels, tags and links still come back,
+                so you can then read just the articles you chose with a single
+                get_article_content call, passing all their IDs at once.
 
         Returns:
             List of articles with id, title, summary as Markdown (omitted when
@@ -136,23 +136,40 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         )
 
     @server.tool()
-    async def get_article_content(article_id: str) -> dict[str, Any]:
-        """Get full content of a specific article.
+    async def get_article_content(article_ids: list[str]) -> dict[str, Any]:
+        """Get the full text of articles, by ID, in one batched call.
 
-        Use this tool to retrieve the complete content of a single article
-        when you need more details than the summary provides. The content is
-        converted from the feed's HTML to Markdown.
+        Pass EVERY article you need in a single call. The whole list goes to
+        FreshRSS as one request, so a digest of 30 articles costs one tool
+        call, not 30. Calling this once per article is the wrong shape: it is
+        far slower for the user and buys nothing.
+
+        The usual flow is two calls: get_unread_articles(include_content=False)
+        to see cheaply what is there, then one call here with the IDs of every
+        article you picked. Unlike get_unread_articles this addresses articles
+        directly, so it also reaches articles that are already marked as read,
+        and articles older than the current unread list.
+
+        The text comes back as Markdown in the 'summary' field, the same shape
+        get_unread_articles returns, and in the order you asked for. Unknown
+        IDs cost you nothing: they come back listed in not_found while every
+        other article still arrives. For feeds that publish only a short
+        excerpt, follow up with fetch_full_article on the article's link.
 
         Args:
-            article_id: The article ID to fetch (from get_unread_articles)
+            article_ids: Article IDs to fetch (from get_unread_articles). Both
+                the long "tag:google.com,2005:reader/item/..." form and the
+                plain numeric form work.
 
         Returns:
-            Article with full content including id, title, content as Markdown,
-            link, published, labels, tags, starred, and freshrss_url (a link
-            that opens the article in the FreshRSS web UI)
+            articles (each with id, title, summary as Markdown, link,
+            published, feed_title, feed_id, labels, tags, starred and
+            freshrss_url, in the order requested), not_found for IDs no
+            article exists for, and invalid_ids for IDs that could not be
+            parsed
         """
         client = await get_client()
-        return await articles.get_article_content(client, article_id=article_id)
+        return await articles.get_article_content(client, article_ids=article_ids)
 
     @server.tool()
     async def get_article_links(article_ids: list[str]) -> dict[str, Any]:
@@ -185,8 +202,11 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         Use this tool after processing articles to mark them as read.
         This helps keep track of which articles have been reviewed.
 
+        Pass every article ID in one call: the whole batch goes to FreshRSS as
+        a single request, so marking 50 articles costs one tool call, not 50.
+
         Args:
-            article_ids: List of article IDs to mark as read
+            article_ids: List of article IDs to mark as read, all in one call
 
         Returns:
             Operation result with success status and count of articles marked
