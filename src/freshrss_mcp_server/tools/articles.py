@@ -7,6 +7,7 @@ from typing import Any
 from freshrss_mcp_server.api.client import FreshRSSClient
 from freshrss_mcp_server.api.models import ArticleResponse, SubscriptionResponse, article_web_url
 from freshrss_mcp_server.config import get_settings
+from freshrss_mcp_server.content import to_markdown
 from freshrss_mcp_server.exceptions import APIError, FreshRSSError
 from freshrss_mcp_server.links import (
     ArticleIdError,
@@ -42,9 +43,10 @@ async def get_unread_articles(
             the few articles it wants with get_article_content.
 
     Returns:
-        List of articles with id, title, summary (unless include_content is
-        False), link, published, feed_title, feed_id, labels, tags, starred, and
-        freshrss_url (link to the article in the FreshRSS web UI)
+        List of articles with id, title, summary as Markdown (unless
+        include_content is False), link, published, feed_title, feed_id, labels,
+        tags, starred, and freshrss_url (link to the article in the FreshRSS web
+        UI)
     """
     if feed_id and label:
         return [
@@ -96,9 +98,9 @@ async def get_article_content(
         article_id: The article ID to fetch
 
     Returns:
-        Article with full content including id, title, content, link, published,
-        labels, tags, starred, and freshrss_url (link to the article in the
-        FreshRSS web UI)
+        Article with full content including id, title, content as Markdown,
+        link, published, labels, tags, starred, and freshrss_url (link to the
+        article in the FreshRSS web UI)
     """
     web_url = get_settings().freshrss_web_url
     try:
@@ -114,7 +116,7 @@ async def get_article_content(
                 return {
                     "id": article.id,
                     "title": article.title,
-                    "content": article.summary.content if article.summary else "",
+                    "content": to_markdown(article.summary.content) if article.summary else "",
                     "link": article.link,
                     "published": article.published_at.isoformat(),
                     "feed_title": article.origin.title if article.origin else "",

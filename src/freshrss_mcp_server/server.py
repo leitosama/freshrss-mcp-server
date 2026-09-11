@@ -52,7 +52,8 @@ _FETCH_FULL_ARTICLE_DESCRIPTION = """Fetch full article content from original UR
 
 Use this tool when an RSS feed only provides a summary and you need
 the complete article text. It extracts the main content from the webpage
-using static fetching (no JavaScript execution).
+using static fetching (no JavaScript execution) and returns it as Markdown,
+so headings, lists, tables and links stay intact.
 
 If the returned content seems incomplete (e.g., just "Loading..." or
 JavaScript placeholders), this server cannot render the page - retry
@@ -62,8 +63,8 @@ Args:
     url: The original article URL to fetch
 
 Returns:
-    Extracted article content with title, text, author, date, and method.
-    The 'method' field is always 'static'.
+    Extracted article content as Markdown, with title, author, date, and
+    method. The 'method' field is always 'static'.
 """
 
 
@@ -93,7 +94,9 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         Use this tool to get a list of unread articles from your RSS subscriptions.
         Every article comes back with its title, link, publication date, and the
         labels and tags it carries in FreshRSS; the summary text is included
-        unless you turn it off with include_content.
+        unless you turn it off with include_content. Summaries are converted
+        from the feed's HTML to Markdown, so links, lists and tables survive as
+        readable text.
 
         Args:
             limit: Maximum number of articles to return (default: 100)
@@ -116,7 +119,7 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
                 just the articles you chose.
 
         Returns:
-            List of articles with id, title, summary (omitted when
+            List of articles with id, title, summary as Markdown (omitted when
             include_content is False), link, published, feed_title, feed_id,
             labels (FreshRSS labels, including the feed's folder), tags (tags the
             source feed put on the article), starred, and freshrss_url (a link
@@ -137,15 +140,16 @@ def create_server(host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
         """Get full content of a specific article.
 
         Use this tool to retrieve the complete content of a single article
-        when you need more details than the summary provides.
+        when you need more details than the summary provides. The content is
+        converted from the feed's HTML to Markdown.
 
         Args:
             article_id: The article ID to fetch (from get_unread_articles)
 
         Returns:
-            Article with full content including id, title, content, link,
-            published, labels, tags, starred, and freshrss_url (a link that opens
-            the article in the FreshRSS web UI)
+            Article with full content including id, title, content as Markdown,
+            link, published, labels, tags, starred, and freshrss_url (a link
+            that opens the article in the FreshRSS web UI)
         """
         client = await get_client()
         return await articles.get_article_content(client, article_id=article_id)

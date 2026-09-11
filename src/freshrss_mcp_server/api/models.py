@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
+from freshrss_mcp_server.content import to_markdown
 from freshrss_mcp_server.links import ArticleIdError, build_article_url, to_entry_id
 
 # =============================================================================
@@ -212,7 +213,7 @@ class ArticleResponse(BaseModel):
 
     id: str
     title: str
-    summary: str | None = None
+    summary: str | None = None  # Markdown, converted from the feed's HTML
     link: str | None
     published: datetime
     feed_title: str
@@ -239,7 +240,11 @@ class ArticleResponse(BaseModel):
                 articles without their bodies, which is much cheaper for a
                 caller that only needs to triage titles first.
         """
-        summary = (article.summary.content if article.summary else "") if include_content else None
+        summary = (
+            (to_markdown(article.summary.content) if article.summary else "")
+            if include_content
+            else None
+        )
         return cls(
             id=article.id,
             title=article.title,

@@ -6,6 +6,8 @@ An MCP (Model Context Protocol) server that connects to a self-hosted FreshRSS i
 
 - **Fetch Unread Articles**: Get all unread articles from your RSS subscriptions
 - **Article Content**: Access full article content with title, summary, link, and publication date
+- **Markdown Output**: Article text is converted from HTML to Markdown, so tool
+  results stay readable and cheap for an LLM to consume
 - **Full Article Scraping**: Extract complete article text from original URLs (for summary-only feeds), via static fetching
 - **Mark as Read**: Mark articles as read after processing
 - **Subscription Management**: View all subscriptions with unread counts
@@ -290,7 +292,7 @@ Fetch unread articles from FreshRSS.
   included, still comes back. Fetch the text of the articles you picked with
   `get_article_content` or `fetch_full_article` afterwards.
 
-**Returns:** List of articles with id, title, summary (omitted when
+**Returns:** List of articles with id, title, summary as Markdown (omitted when
 `include_content` is `false`), link, published, feed_title, feed_id, `labels`,
 `tags`, `starred`, and `freshrss_url` (a link that opens the article in the
 FreshRSS web UI)
@@ -311,8 +313,8 @@ Get full content of a specific article.
 **Parameters:**
 - `article_id`: The article ID to fetch
 
-**Returns:** Article with full content, including `labels`, `tags`, `starred`
-and `freshrss_url`
+**Returns:** Article with full content as Markdown, including `labels`, `tags`,
+`starred` and `freshrss_url`
 
 ### `get_article_links`
 Build links that open articles in the FreshRSS web UI. Single articles already
@@ -349,7 +351,8 @@ browser-capable tool against the original URL for those.
 **Parameters:**
 - `url`: The original article URL to fetch
 
-**Returns:** Extracted article content with title, text, and method (always 'static')
+**Returns:** Extracted article content as Markdown, with title, author, date
+and method (always 'static')
 
 #### How FreshRSS links are built
 
@@ -373,6 +376,7 @@ to an already-read article would open an empty list.
    - For a large backlog, pass `include_content=false` first: titles, labels and
      tags are enough to decide what is worth reading
 2. AI analyzes titles, labels/tags and summaries to determine importance
+   - Summaries arrive as Markdown, so links, lists and tables are readable as-is
 3. For incomplete summaries, AI calls `fetch_full_article` to get full content
 4. AI generates summary report for all articles
 5. After user reviews, AI calls `mark_as_read` to mark articles as read
@@ -433,6 +437,7 @@ uv run ty check .
 - **httpx** - Async HTTP client
 - **Pydantic** - Data validation
 - **trafilatura** - Static article content extraction
+- **markdownify** - HTML to Markdown conversion for feed summaries
 
 ## License
 
