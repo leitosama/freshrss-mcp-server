@@ -115,7 +115,7 @@ Dockerfile                 # Published image
 
 | Tool | Description |
 |------|-------------|
-| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `feed_id`, `labels`, `tags` and `starred` state. `include_content=False` drops the summary text and renders the listing as a Markdown table; with summaries (Markdown) it is a JSON array instead |
+| `get_unread_articles` | Fetch unread articles list (optionally filtered by `feed_id` **or** `label`, e.g. `label="news"`). Every article carries its `feed_id`, `labels`, `tags`, `starred` state and `length` (the Markdown summary's character count). `include_content=False` drops the summary text (keeping `length`) and renders the listing as a Markdown table; with summaries (Markdown) it is a JSON array instead |
 | `get_article_content` | Get the text of one **or many** articles by ID, as Markdown, in a single request. Reaches already-read articles, which `get_unread_articles` cannot. Returns `articles` (in the order asked for), `not_found` and `invalid_ids` |
 | `fetch_full_article` | Scrape full content from original URL as Markdown (static fetch only, see Scope above) |
 | `get_article_links` | Build FreshRSS web UI links for one or many articles |
