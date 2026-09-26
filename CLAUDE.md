@@ -474,7 +474,7 @@ after a `docker` or `uv` ecosystem bump:
 | Thing | Where | Why it's invisible to Dependabot |
 |---|---|---|
 | `ghcr.io/astral-sh/uv:X.Y.Z` | `COPY --from=` in `Dockerfile` | Dependabot's `docker` ecosystem parses `FROM` lines only. `COPY --from` support is [dependabot-core#12988](https://github.com/dependabot/dependabot-core/pull/12988) — check if it's merged; delete this row once it ships. |
-| Python version coherence | `Dockerfile`, `.python-version`, `pyproject.toml` (`requires-python`), `[tool.ruff] target-version` | A `python:*-slim` bump from Dependabot only touches the Docker tag. The other three spots drift unless updated together, by hand. |
+| Python version coherence | `Dockerfile`, `.python-version`, `pyproject.toml` (`requires-python`), `[tool.ruff] target-version` | A `python:*-slim` bump from Dependabot only touches the Docker tag. The other three spots drift unless updated together, by hand. `.python-version` is an exact patch (e.g. `3.14.7`), not `3.14`: a bare minor let the web sandbox's old uv resolve `3.14.0rc2`, which pydantic cannot import on. `.claude/hooks/session-start.sh` installs a current uv there when the image's one cannot download the pinned patch. Bump the patch by hand now and then. |
 
 ### Handling `@claude` on Dependabot PRs
 
