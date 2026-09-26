@@ -13,9 +13,10 @@ updates:
     labels: ["dependencies", "github-actions"]
     commit-message:
       prefix: "ci"
+    # semver-*-days is not supported for github-actions/docker (tags aren't
+    # semver to Dependabot), so only default-days applies here.
     cooldown:
       default-days: 7
-      semver-major-days: 14
     groups:
       actions-minor-patch:
         patterns: ["*"]
@@ -35,9 +36,10 @@ updates:
     labels: ["dependencies", "docker"]
     commit-message:
       prefix: "build"
+    # semver-*-days is not supported for github-actions/docker (tags aren't
+    # semver to Dependabot), so only default-days applies here.
     cooldown:
       default-days: 7
-      semver-major-days: 14
 
   # pyproject.toml + uv.lock. Deliberately NOT ignoring python's own
   # >=3.14 floor or a `python:*-slim` major bump: those PRs are the
