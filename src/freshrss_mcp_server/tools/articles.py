@@ -33,8 +33,20 @@ FEED_COLUMNS = ("id", "title", "category")
 # Column headings of the get_unread_articles table, likewise ArticleResponse's
 # own field names. "summary" is absent by design: a table row ends at the first
 # newline, so an article body cannot live in a cell, which is why the table is
-# only offered for a listing that left the summaries out.
-ARTICLE_COLUMNS = ("id", "title", "link", "published", "feed_id", "labels", "tags", "starred")
+# only offered for a listing that left the summaries out. "length" stands in for
+# it - the Markdown summary's character count - so a caller can gauge an article
+# without paying for its text.
+ARTICLE_COLUMNS = (
+    "id",
+    "title",
+    "length",
+    "link",
+    "published",
+    "feed_id",
+    "labels",
+    "tags",
+    "starred",
+)
 
 # The formats a listing renders, in the order the error message lists them.
 # Only get_feeds validates against this - get_unread_articles derives its format
@@ -128,9 +140,9 @@ async def get_article_content(
 
     Returns:
         articles, in the order they were asked for, each with id, title,
-        summary as Markdown, link, published, feed_id, labels, tags and
-        starred; not_found for IDs no article exists for; and invalid_ids
-        for IDs that could not be parsed
+        summary as Markdown, length (the summary's character count), link,
+        published, feed_id, labels, tags and starred; not_found for IDs no
+        article exists for; and invalid_ids for IDs that could not be parsed
     """
     if not article_ids:
         return {"articles": [], "not_found": [], "invalid_ids": []}

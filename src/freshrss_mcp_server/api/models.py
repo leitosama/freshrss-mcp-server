@@ -218,6 +218,7 @@ class ArticleResponse(BaseModel):
     id: str
     title: str
     summary: str | None = None  # Markdown, converted from the feed's HTML
+    length: int = 0  # Character count of the Markdown summary
     link: str | None
     published: datetime
     # The bare number, as get_feeds reports it, so the two line up on sight
@@ -244,18 +245,15 @@ class ArticleResponse(BaseModel):
                 articles without their bodies, which is much cheaper for a
                 caller that only needs to triage titles first.
         """
-        summary = (
-            (to_markdown(article.summary.content) if article.summary else "")
-            if include_content
-            else None
-        )
+        markdown = to_markdown(article.summary.content) if article.summary else ""
         return cls(
             # Drop the "tag:google.com,2005:reader/item/" prefix: it's dead
             # weight on every article, and get_article_content/get_article_links
             # still accept the bare form.
             id=article.id.removeprefix(GREADER_ITEM_PREFIX),
             title=article.title,
-            summary=summary,
+            summary=markdown if include_content else None,
+            length=len(markdown),
             link=article.link,
             published=article.published_at,
             feed_id=to_feed_id(article.origin.stream_id) if article.origin else "",
