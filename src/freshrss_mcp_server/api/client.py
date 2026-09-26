@@ -221,8 +221,7 @@ class FreshRSSClient:
         'Invalid POST token' errors in long-running sessions.
         """
         # Always get a fresh token to avoid expiration issues
-        await self.get_token()
-        return self._action_token  # type: ignore[return-value]
+        return await self.get_token()
 
     # =========================================================================
     # Subscriptions
